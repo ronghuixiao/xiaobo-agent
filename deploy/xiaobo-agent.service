@@ -1,0 +1,25 @@
+[Unit]
+Description=XiaoBo Agent - Personal Digital Companion
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/xiaobo-agent
+ExecStart=/usr/bin/python3 /root/xiaobo-agent/main.py --daemon
+Restart=always
+RestartSec=10
+Environment=PYTHONPATH=/root/xiaobo-agent
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xiaobo-agent
+
+# 资源限制
+MemoryMax=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
