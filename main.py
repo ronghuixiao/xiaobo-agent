@@ -114,6 +114,26 @@ async def interactive_mode(settings):
         await llm.close()
 
 
+async def qr_login_mode(settings):
+    """QR 扫码登录模式 - 扫码获取微信 token"""
+    try:
+        from src.wechat.connection import WechatConnection
+    except ImportError:
+        print("❌ 需要 aiohttp: pip install aiohttp")
+        return
+
+    conn = WechatConnection()
+    print("\n📱 微信 QR 扫码登录")
+    print("=" * 50)
+    token = await conn.qr_login()
+    if token:
+        print(f"\n✅ 登录成功！Token 已保存")
+        print(f"   现在可以用 'python main.py --daemon' 启动守护模式")
+        print(f"   Token 文件: ~/.xiaobo-agent/wechat_token")
+    else:
+        print("\n❌ 登录失败或超时，请重试")
+
+
 async def daemon_mode(settings):
     """守护模式 - 微信 + 定时任务 + Web API"""
     llm = create_llm_provider(settings.llm)
@@ -203,16 +223,22 @@ async def daemon_mode(settings):
 
     # === 微信连接 ===
     wechat_conn = None
-    if settings.wechat.enabled and settings.wechat.ilink_token:
+    # 优先使用已保存的 token 文件
+    from src.wechat.connection import WechatConnection
+    saved_token = WechatConnection.load_token()
+    token = saved_token or settings.wechat.ilink_token
+
+    if settings.wechat.enabled and token:
         try:
-            from src.wechat.connection import WechatConnection
-            wechat_conn = WechatConnection(token=settings.wechat.ilink_token)
+            wechat_conn = WechatConnection(token=token)
             await wechat_conn.start()
             logger.info("📱 微信连接已启动")
         except ImportError:
             logger.warning("微信连接需要 aiohttp: pip install aiohttp")
         except Exception as e:
             logger.error(f"微信连接失败: {e}")
+    elif settings.wechat.enabled and not token:
+        logger.warning("📱 微信已启用但未登录，请先运行: python main.py --qr-login")
 
     # === 启动所有服务 ===
     logger.info(f"🌟 小柏守护模式启动！")
@@ -397,6 +423,7 @@ def main():
     parser.add_argument("--daemon", action="store_true", help="守护模式（微信连接 + 定时任务 + API）")
     parser.add_argument("--test", action="store_true", help="测试模式")
     parser.add_argument("--web", action="store_true", help="Web API 模式")
+    parser.add_argument("--qr-login", action="store_true", help="微信 QR 扫码登录")
     parser.add_argument("--config", type=str, help="配置文件路径")
     args = parser.parse_args()
 
@@ -404,6 +431,8 @@ def main():
 
     if args.test:
         asyncio.run(test_mode(settings))
+    elif args.qr_login:
+        asyncio.run(qr_login_mode(settings))
     elif args.daemon:
         asyncio.run(daemon_mode(settings))
     elif args.web:

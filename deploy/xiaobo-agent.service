@@ -7,7 +7,7 @@ Wants=docker.service
 Type=simple
 User=root
 WorkingDirectory=/root/xiaobo-agent
-ExecStart=/usr/bin/python3 /root/xiaobo-agent/main.py --daemon
+ExecStart=/root/.hermes/hermes-agent/venv/bin/python3 /root/xiaobo-agent/main.py --daemon
 Restart=always
 RestartSec=10
 Environment=PYTHONPATH=/root/xiaobo-agent

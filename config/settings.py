@@ -45,6 +45,7 @@ class CompanionConfig(BaseModel):
 class WechatConfig(BaseModel):
     enabled: bool = False
     ilink_token: str = ""
+    owner_id: str = ""
 
 
 class Settings(BaseModel):
