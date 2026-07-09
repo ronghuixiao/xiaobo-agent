@@ -397,9 +397,10 @@ async def daemon_mode(settings):
 
         # === 飞书 Webhook 路由（集成到8088端口） ===
         import json as _json
+        from fastapi import Request
         
         @web_app.post("/feishu/webhook")
-        async def feishu_webhook(request):
+        async def feishu_webhook(request: Request):
             """处理飞书 Webhook 回调"""
             try:
                 body = await request.json()
