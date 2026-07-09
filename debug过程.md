@@ -734,3 +734,48 @@ async def feishu_webhook(request):
 1. **集成优于独立服务** — 能用现有端口就不要开新端口
 2. **配置端口要考虑实际情况** — 改端口需要重新发布版本
 3. **FastAPI路由可以处理webhook** — 不需要单独的aiohttp服务器
+
+---
+
+### 问题21：飞书webhook路由参数错误
+
+**现象**：
+飞书发消息没回复，日志显示没有收到任何消息。
+
+**分析**：
+1. 测试webhook端点返回错误：
+```json
+{
+  "detail": [{
+    "type": "missing",
+    "loc": ["query", "request"],
+    "msg": "Field required"
+  }]
+}
+```
+2. FastAPI路由的`request`参数没有类型提示
+3. FastAPI无法正确解析请求对象
+
+**修复**：
+添加`Request`类型提示：
+```python
+from fastapi import Request
+
+@web_app.post("/feishu/webhook")
+async def feishu_webhook(request: Request):
+    """处理飞书 Webhook 回调"""
+    body = await request.json()
+    ...
+```
+
+**验证结果**：
+```
+✅ 测试webhook返回: {"challenge": "test123"}
+✅ 测试消息处理返回: {"code": 0}
+✅ 日志显示: 收到飞书消息: [p2p] 你好
+✅ 日志显示: 已回复飞书 [ou_test123]
+```
+
+**教训**：
+1. **FastAPI路由参数需要类型提示** — 没有类型提示会报错
+2. **Request对象需要从fastapi导入** — 不能直接使用
