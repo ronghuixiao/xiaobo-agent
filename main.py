@@ -431,6 +431,12 @@ async def daemon_mode(settings):
             feishu_conn = FeishuConnection(config=feishu_config)
             await feishu_conn.start()
             logger.info("📱 飞书连接已启动")
+            # 启动 Webhook 服务器接收飞书消息
+            try:
+                await feishu_conn.start_webhook_server()
+                logger.info("📱 飞书 Webhook 服务器已启动")
+            except Exception as e:
+                logger.warning(f"飞书 Webhook 启动失败: {e}")
         except ImportError:
             logger.warning("飞书连接需要 aiohttp: pip install aiohttp")
         except Exception as e:
@@ -457,6 +463,43 @@ async def daemon_mode(settings):
             logger.warning(f"无法发送提醒（飞书/微信均未连接）: {msg[:50]}...")
 
     # === 启动所有服务 ===
+    # === 飞书消息处理 ===
+    if feishu_conn:
+        async def handle_feishu_message(msg):
+            """处理飞书消息"""
+            logger.info(f"收到飞书消息 [{msg.sender_name}]: {msg.content}")
+            handler.start_session()
+            
+            # 处理特殊命令
+            content = msg.content.strip()
+            if content == "日报":
+                report = await daily_report.generate_daily_report()
+                await feishu_conn.broadcast(msg.chat_id, f"📋 今日日报\n\n{report}")
+            elif content == "周报":
+                report = await report_gen.generate_weekly_report()
+                await feishu_conn.broadcast(msg.chat_id, f"📋 周报\n\n{report}")
+            elif content == "月报":
+                report = await report_gen.generate_monthly_report()
+                await feishu_conn.broadcast(msg.chat_id, f"📋 月报\n\n{report}")
+            elif content == "情绪":
+                summary = await tracker.get_emotion_summary(days=7)
+                await feishu_conn.broadcast(msg.chat_id, f"🎭 情绪摘要\n\n{summary}")
+            elif content == "模式":
+                pattern = await analyzer.analyze_weekly_pattern()
+                text = f"📊 本周模式\n总消息: {pattern['total_messages']}\n最忙: {pattern['busiest_day']}\n最闲: {pattern['quietest_day']}"
+                await feishu_conn.broadcast(msg.chat_id, text)
+            elif content == "统计":
+                stats = await memory.get_stats()
+                await feishu_conn.broadcast(msg.chat_id, f"📊 记忆统计: {stats}")
+            else:
+                response = await handler.handle_message(content)
+                await feishu_conn.broadcast(msg.chat_id, response)
+            
+            logger.info(f"已回复飞书 [{msg.sender_name}]")
+        
+        feishu_conn.on_message(handle_feishu_message)
+        logger.info("📱 飞书消息处理器已注册")
+    
     logger.info(f"🌟 小柏守护模式启动！")
     logger.info(f"   模型: {llm.name}")
     logger.info(f"   定时任务: 日报({settings.companion.daily_report_hour}:00), 签到(8:00), 主动提醒(每4h), 任务提醒(每30min)")
