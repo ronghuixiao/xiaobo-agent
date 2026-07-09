@@ -683,3 +683,54 @@ feishu_conn.on_message(handle_feishu_message)
 1. **Webhook模式需要启动服务器** — 仅初始化连接不够
 2. **重复的方法定义会覆盖** — Python中后定义的会覆盖先定义的
 3. **消息处理需要注册回调** — 收到消息后需要有处理逻辑
+
+---
+
+### 问题20：飞书webhook端口冲突
+
+**现象**：
+飞书开放平台配置的webhook是8088端口，但代码启动了独立的9000端口服务器。
+
+**分析**：
+1. 飞书开放平台配置的webhook URL是 `http://1.117.61.172:8088/feishu/webhook`
+2. 代码中启动了独立的aiohttp服务器在9000端口
+3. 飞书发送事件到8088端口，但那里没有处理飞书事件的路由
+4. 改端口需要在飞书开放平台重新发布版本，太麻烦
+
+**解决方案**：
+把飞书webhook集成到现有的FastAPI应用（8088端口），而不是启动独立服务器。
+
+**修改**：
+1. 在FastAPI web_app中添加POST路由 `/feishu/webhook`
+2. 移除独立的webhook服务器启动代码
+3. 路由直接处理飞书事件回调
+
+```python
+@web_app.post("/feishu/webhook")
+async def feishu_webhook(request):
+    """处理飞书 Webhook 回调"""
+    body = await request.json()
+    
+    # URL 验证
+    if body.get("type") == "url_verification":
+        return {"challenge": body.get("challenge", "")}
+    
+    # 处理消息事件
+    if event_type == "im.message.receive_v1":
+        # 提取消息并调用处理器
+    
+    return {"code": 0}
+```
+
+**验证结果**：
+```
+✅ 飞书 Webhook 路由已注册: /feishu/webhook
+✅ 端口8088监听中
+✅ 端口9000不再监听
+✅ 主动提醒已发送(飞书)
+```
+
+**教训**：
+1. **集成优于独立服务** — 能用现有端口就不要开新端口
+2. **配置端口要考虑实际情况** — 改端口需要重新发布版本
+3. **FastAPI路由可以处理webhook** — 不需要单独的aiohttp服务器
