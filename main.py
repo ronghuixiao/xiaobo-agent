@@ -395,6 +395,83 @@ async def daemon_mode(settings):
             _conn.close()
             return {"tasks": [dict(_r) for _r in _rows]}
 
+        # === 飞书 Webhook 路由（集成到8088端口） ===
+        import json as _json
+        
+        @web_app.post("/feishu/webhook")
+        async def feishu_webhook(request):
+            """处理飞书 Webhook 回调"""
+            try:
+                body = await request.json()
+            except Exception:
+                return {"error": "invalid json"}
+            
+            # URL 验证（飞书首次配置时会发送）
+            if body.get("type") == "url_verification":
+                return {"challenge": body.get("challenge", "")}
+            
+            # 验证 token
+            token = body.get("token", "")
+            if settings.feishu.verification_token and token != settings.feishu.verification_token:
+                logger.warning(f"飞书 Webhook token 验证失败: {token}")
+                return {"error": "invalid token"}
+            
+            # 处理事件
+            event = body.get("event", {})
+            event_type = body.get("header", {}).get("event_type", "")
+            
+            if event_type == "im.message.receive_v1":
+                # 提取消息内容
+                message = event.get("message", {})
+                sender = event.get("sender", {}).get("sender_id", {})
+                
+                msg_type = message.get("message_type", "")
+                chat_id = message.get("chat_id", "")
+                chat_type = message.get("chat_type", "p2p")
+                msg_id = message.get("message_id", "")
+                
+                # 只处理文本消息
+                if msg_type == "text":
+                    content = message.get("content", "{}")
+                    try:
+                        content_obj = _json.loads(content)
+                        text = content_obj.get("text", "").strip()
+                    except (_json.JSONDecodeError, TypeError):
+                        text = content
+                    
+                    # 去掉 @机器人 的部分
+                    mentions = message.get("mentions", [])
+                    for mention in mentions:
+                        key = mention.get("key", "")
+                        if key:
+                            text = text.replace(key, "").strip()
+                    
+                    if text and feishu_conn:
+                        logger.info(f"收到飞书消息: [{chat_type}] {text[:50]}")
+                        
+                        # 创建飞书消息对象
+                        from src.feishu.connection import FeishuMessage
+                        feishu_msg = FeishuMessage(
+                            msg_id=msg_id,
+                            sender_id=sender.get("open_id", ""),
+                            sender_name=sender.get("open_id", ""),
+                            content=text,
+                            chat_id=chat_id,
+                            chat_type=chat_type,
+                            msg_type=msg_type,
+                        )
+                        
+                        # 调用消息处理器
+                        if hasattr(feishu_conn, '_on_message') and feishu_conn._on_message:
+                            try:
+                                await feishu_conn._on_message(feishu_msg)
+                            except Exception as e:
+                                logger.error(f"处理飞书消息失败: {e}")
+            
+            return {"code": 0}
+        
+        logger.info("📱 飞书 Webhook 路由已注册: /feishu/webhook")
+    
     except Exception as e:
         logger.warning(f"Web API 初始化失败: {e}")
 
@@ -431,12 +508,6 @@ async def daemon_mode(settings):
             feishu_conn = FeishuConnection(config=feishu_config)
             await feishu_conn.start()
             logger.info("📱 飞书连接已启动")
-            # 启动 Webhook 服务器接收飞书消息
-            try:
-                await feishu_conn.start_webhook_server()
-                logger.info("📱 飞书 Webhook 服务器已启动")
-            except Exception as e:
-                logger.warning(f"飞书 Webhook 启动失败: {e}")
         except ImportError:
             logger.warning("飞书连接需要 aiohttp: pip install aiohttp")
         except Exception as e:
