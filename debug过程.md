@@ -627,3 +627,59 @@ Chat → ✅ HTML 页面
 2. **Prompt不要过度限制** — 限制字数会牺牲内容深度
 3. **引导LLM深度分析** — 而不是简单罗列数据
 4. **增加对比数据** — 与昨日对比能提供更多洞察
+
+---
+
+### 问题19：飞书发消息没回复，网页端看不到发的消息
+
+**现象**：
+- 飞书上给小柏发消息没有回复
+- 网页端dashboard也看不到飞书发的消息
+
+**分析**：
+1. **Webhook服务器未启动**：
+   - `feishu_conn.start()` 只初始化HTTP session和获取token
+   - `start_webhook_server()` 从未被调用
+   - 导致飞书无法将消息推送到服务器
+
+2. **broadcast方法有两个定义**：
+   - `connection.py`中有两个`broadcast`方法
+   - 第二个覆盖了第一个，导致发送消息时用错了ID类型
+   - 第一个使用`id_type="chat_id"`（正确）
+   - 第二个默认使用`id_type="open_id"`（错误）
+
+3. **无消息处理器**：
+   - 即使webhook运行，也没有注册消息处理回调
+   - 收到的消息不会被处理
+
+**修复**：
+1. 在daemon_mode中启动webhook服务器：
+```python
+await feishu_conn.start_webhook_server()
+```
+
+2. 删除重复的broadcast方法，保留正确的版本
+
+3. 注册飞书消息处理器：
+```python
+async def handle_feishu_message(msg):
+    # 处理特殊命令：日报、周报、月报、情绪、模式、统计
+    # 其他消息调用handler.handle_message()
+    # 回复到msg.chat_id
+
+feishu_conn.on_message(handle_feishu_message)
+```
+
+**验证结果**：
+```
+飞书 Webhook 服务器启动: 0.0.0.0:9000/feishu/webhook
+飞书 Webhook 服务器已启动
+飞书消息处理器已注册
+端口9000监听中 ✓
+防火墙已放行9000端口 ✓
+```
+
+**教训**：
+1. **Webhook模式需要启动服务器** — 仅初始化连接不够
+2. **重复的方法定义会覆盖** — Python中后定义的会覆盖先定义的
+3. **消息处理需要注册回调** — 收到消息后需要有处理逻辑
