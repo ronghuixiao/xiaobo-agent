@@ -562,7 +562,13 @@ def create_chat_router() -> APIRouter:
             _handler.start_session()
 
         reply = await _handler.handle_message(req.message)
-
+        
+        # 检测任务完成
+        from src.utils.task_detector import detect_task_completion_sync
+        import logging
+        detect_task_completion_sync(req.message, _handler.llm, logging.getLogger(__name__))
+        detect_task_completion_sync(reply, _handler.llm, logging.getLogger(__name__))
+        
         return ChatResponse(
             reply=reply,
             session_id=_handler._current_session_id,
@@ -583,15 +589,25 @@ def create_chat_router() -> APIRouter:
             _handler.start_session()
 
         session_id = _handler._current_session_id
-
+        full_response = ""
+        
         async def event_generator():
             """SSE 事件生成器"""
+            nonlocal full_response
+            
             # 发送 session_id
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
             
             # 流式生成回复
             async for chunk in _handler.stream_handle_message(req.message):
+                full_response += chunk
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            
+            # 检测任务完成
+            from src.utils.task_detector import detect_task_completion_sync
+            import logging
+            detect_task_completion_sync(req.message, _handler.llm, logging.getLogger(__name__))
+            detect_task_completion_sync(full_response, _handler.llm, logging.getLogger(__name__))
             
             # 发送完成信号
             yield f"data: {json.dumps({'type': 'done'})}\n\n"

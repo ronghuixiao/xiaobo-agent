@@ -264,6 +264,9 @@ async def daemon_mode(settings):
         import json as _json
         import asyncio
         import threading
+        from src.llm.base import ChatMessage
+        
+        logger.info(f"🔍 检测任务完成: {message[:50]}...")
         
         def _run_async():
             """在新线程中运行异步检测"""
@@ -280,8 +283,11 @@ async def daemon_mode(settings):
                     ).fetchall()
                     
                     if not pending_tasks:
+                        logger.info("🔍 无待办任务，跳过检测")
                         _conn.close()
                         return
+                    
+                    logger.info(f"🔍 待办任务: {[t[1] for t in pending_tasks]}")
                     
                     # 构建任务列表
                     task_list = "\n".join([f"- {task_id}: {task_title}" for task_id, task_title in pending_tasks])
@@ -298,7 +304,9 @@ async def daemon_mode(settings):
 只返回JSON。"""
                     
                     # 调用LLM
+                    logger.info("🔍 调用LLM检测...")
                     response = await llm.chat([ChatMessage(role="user", content=prompt)])
+                    logger.info(f"🔍 LLM响应: {response.content[:200]}")
                     
                     # 解析LLM返回的JSON
                     try:
@@ -309,6 +317,7 @@ async def daemon_mode(settings):
                         if start_idx != -1 and end_idx != -1:
                             json_str = response_text[start_idx:end_idx]
                             completed_tasks = _json.loads(json_str)
+                            logger.info(f"🔍 解析到完成任务: {completed_tasks}")
                             
                             # 更新任务状态
                             for task in completed_tasks:
@@ -318,13 +327,17 @@ async def daemon_mode(settings):
                                     if any(t[0] == task_id for t in pending_tasks):
                                         _conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
                                         logger.info(f"✅ 任务已完成(LLM检测): {task_id}")
+                                    else:
+                                        logger.warning(f"⚠️ 任务ID不在待办列表中: {task_id}")
+                        else:
+                            logger.info("🔍 LLM响应中未找到JSON数组")
                     except (_json.JSONDecodeError, KeyError, TypeError) as e:
                         logger.warning(f"解析LLM任务完成检测结果失败: {e}")
                     
                     _conn.commit()
                     _conn.close()
                 except Exception as e:
-                    logger.warning(f"检测任务完成失败: {e}")
+                    logger.warning(f"检测任务完成失败: {e}", exc_info=True)
             
             # 运行异步检测
             loop = asyncio.new_event_loop()
