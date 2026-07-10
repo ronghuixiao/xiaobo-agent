@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小柏 Agent - Dashboard</title>
+<style>
+:root {
+  --bg: #f0f2f5;
+  --card: #ffffff;
+  --primary: #667eea;
+  --primary-light: #eef2ff;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --text: #1e293b;
+  --text2: #64748b;
+  --text3: #94a3b8;
+  --border: #e2e8f0;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,.1);
+  --radius: 16px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.header h1 { font-size: 1.6em; font-weight: 700; }
+.header h1 span { background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.header .date { color: var(--text2); font-size: .9em; }
+.header .status { display: flex; align-items: center; gap: 6px; font-size: .85em; color: var(--success); }
+.header .status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.grid-full { grid-column: 1 / -1; }
+@media(max-width:768px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+.card-title { font-size: 1em; font-weight: 600; color: var(--text); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.card-title .icon { font-size: 1.2em; }
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat { text-align: center; padding: 18px 10px; background: var(--primary-light); border-radius: 12px; transition: transform .2s; }
+.stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.stat .num { font-size: 2em; font-weight: 800; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.stat .label { font-size: .8em; color: var(--text2); margin-top: 4px; }
+@media(max-width:600px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+.timeline { position: relative; padding-left: 28px; }
+.timeline::before { content: ''; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.timeline-item { position: relative; padding: 10px 0; }
+.timeline-item::before { content: ''; position: absolute; left: -22px; top: 14px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--primary); background: white; z-index: 1; }
+.timeline-item.done::before { background: var(--success); border-color: var(--success); }
+.timeline-item.active::before { background: var(--primary); border-color: var(--primary); animation: pulse 1.5s infinite; box-shadow: 0 0 0 4px rgba(102,126,234,.2); }
+.timeline-item .time { font-size: .75em; color: var(--text3); font-weight: 600; text-transform: uppercase; }
+.timeline-item .desc { font-size: .9em; color: var(--text); margin-top: 2px; }
+.timeline-item .tag { display: inline-block; font-size: .7em; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
+.tag-done { background: #d1fae5; color: #065f46; }
+.tag-active { background: #dbeafe; color: #1e40af; }
+.tag-pending { background: #f1f5f9; color: #475569; }
+.emotion-chart { display: flex; flex-direction: column; gap: 10px; }
+.emotion-row { display: flex; align-items: center; gap: 10px; }
+.emotion-emoji { font-size: 1.4em; width: 36px; text-align: center; }
+.emotion-bar-bg { flex: 1; height: 28px; background: #f1f5f9; border-radius: 14px; overflow: hidden; position: relative; }
+.emotion-bar-fill { height: 100%; border-radius: 14px; display: flex; align-items: center; padding-left: 10px; color: white; font-size: .8em; font-weight: 600; transition: width .8s ease; min-width: fit-content; }
+.emotion-count { font-size: .8em; color: var(--text3); width: 50px; text-align: right; }
+.message-list { max-height: 420px; overflow-y: auto; scrollbar-width: thin; }
+.message { padding: 14px; margin: 8px 0; border-radius: 12px; border-left: 3px solid transparent; }
+.message.user { background: #f8fafc; border-left-color: var(--primary); }
+.message.assistant { background: #f0fdf4; border-left-color: var(--success); }
+.message .role { font-weight: 600; font-size: .85em; display: flex; align-items: center; gap: 6px; }
+.message .role .name { color: var(--text); }
+.message .role .time { font-weight: 400; font-size: .8em; color: var(--text3); }
+.message .content { margin-top: 6px; font-size: .9em; line-height: 1.6; color: var(--text2); word-break: break-word; }
+.facts-list { display: flex; flex-direction: column; gap: 8px; }
+.fact-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #fafafa; border-radius: 10px; border: 1px solid var(--border); }
+.fact-type { font-size: .7em; padding: 2px 8px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+.fact-type.preference { background: #dbeafe; color: #1e40af; }
+.fact-type.identity { background: #fce7f3; color: #9d174d; }
+.fact-type.event { background: #d1fae5; color: #065f46; }
+.fact-type.other { background: #f1f5f9; color: #475569; }
+.fact-content { font-size: .85em; color: var(--text2); line-height: 1.5; }
+.phone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.phone-app { padding: 10px; background: #fafafa; border-radius: 10px; text-align: center; border: 1px solid var(--border); }
+.phone-app .app-name { font-size: .85em; font-weight: 600; color: var(--text); }
+.phone-app .app-time { font-size: .75em; color: var(--text3); margin-top: 2px; }
+.phone-app .app-bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.phone-app .app-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--primary), #764ba2); }
+.empty { text-align: center; color: var(--text3); padding: 30px; font-size: .9em; }
+.loading { text-align: center; padding: 30px; }
+.loading::after { content: ''; display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; margin-left: 8px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.refresh-btn { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: .8em; color: var(--text2); cursor: pointer; transition: all .2s; }
+.refresh-btn:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+
+/* Day selector styles */
+.day-selector { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 14px; }
+.day-nav { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; font-size: 1.1em; cursor: pointer; color: var(--text2); transition: all .2s; line-height: 1; }
+.day-nav:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+.day-nav:disabled { opacity: .3; cursor: default; }
+.day-label { font-weight: 600; font-size: .95em; color: var(--text); min-width: 140px; text-align: center; }
+.day-sublabel { font-size: .75em; color: var(--text3); font-weight: 400; }
+
+/* Task list styles */
+.task-section-title { font-size: .75em; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin: 12px 0 6px 0; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
+.task-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 6px; transition: all .2s; background: #fafafa; }
+.task-item:hover { border-color: var(--primary); box-shadow: var(--shadow); }
+.task-item.done { background: #f0fdf4; border-color: #bbf7d0; }
+.task-item.missed { background: #fff7ed; border-color: #fed7aa; }
+.task-checkbox { width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .2s; font-size: .7em; }
+.task-checkbox:hover { border-color: var(--primary); }
+.task-checkbox.checked { background: var(--success); border-color: var(--success); color: white; }
+.task-info { flex: 1; min-width: 0; }
+.task-title { font-size: .9em; font-weight: 500; color: var(--text); }
+.task-item.done .task-title { text-decoration: line-through; color: var(--text3); }
+.task-time { font-size: .75em; color: var(--text3); }
+.task-badge { font-size: .65em; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
+.badge-builtin { background: #e0e7ff; color: #4338ca; }
+.badge-user { background: #fce7f3; color: #9d174d; }
+.badge-done { background: #d1fae5; color: #065f46; }
+.badge-pending { background: #fef3c7; color: #92400e; }
+.badge-missed { background: #fee2e2; color: #991b1b; }
+
+/* Upcoming tasks section */
+.upcoming-list { display: flex; flex-direction: column; gap: 8px; }
+.upcoming-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: linear-gradient(135deg, #f8fafc, #f0f4ff); transition: all .2s; }
+.upcoming-item:hover { border-color: var(--primary); box-shadow: var(--shadow); }
+.upcoming-date { font-size: .75em; font-weight: 600; color: var(--primary); background: var(--primary-light); padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
+.upcoming-info { flex: 1; }
+.upcoming-title { font-size: .9em; font-weight: 500; color: var(--text); }
+.upcoming-time { font-size: .75em; color: var(--text3); margin-top: 2px; }
+.upcoming-countdown { font-size: .7em; padding: 3px 8px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+.countdown-today { background: #fee2e2; color: #991b1b; }
+.countdown-tomorrow { background: #fef3c7; color: #92400e; }
+.countdown-later { background: #dbeafe; color: #1e40af; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1><span>小柏 Agent</span> Dashboard</h1>
+      <div class="date" id="current-date"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="status">运行中</div>
+      <button class="refresh-btn" onclick="location.reload()">刷新</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="stats-row" id="stats">
+      <div class="stat"><div class="num" id="s-conv">-</div><div class="label">对话总数</div></div>
+      <div class="stat"><div class="num" id="s-facts">-</div><div class="label">记忆事实</div></div>
+      <div class="stat"><div class="num" id="s-emo">-</div><div class="label">情绪记录</div></div>
+      <div class="stat"><div class="num" id="s-assoc">-</div><div class="label">关联索引</div></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-title"><span class="icon">📋</span>今日任务</div>
+      <div class="day-selector">
+        <button class="day-nav" id="day-prev" onclick="changeDay(-1)">◀</button>
+        <div class="day-label" id="day-label"></div>
+        <button class="day-nav" id="day-next" onclick="changeDay(1)">▶</button>
+      </div>
+      <div id="task-list"><div class="loading">加载中</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🎭</span>情绪画像（近7天）</div>
+      <div id="emotions"><div class="loading">加载中</div></div>
+    </div>
+  </div>
+
+    <div class="card grid-full">
+      <div class="card-title"><span class="icon">📌</span>即将到来的任务</div>
+      <div id="upcoming-tasks"><div class="loading">加载中</div></div>
+    </div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-title"><span class="icon">🧠</span>记忆事实</div>
+      <div id="facts"><div class="loading">加载中</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📱</span>手机使用</div>
+      <div id="phone"><div class="empty">暂无数据</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">💬</span>最近对话</div>
+    <div class="message-list" id="messages"><div class="loading">加载中</div></div>
+  </div>
+</div>
+
+<script>
+var now = new Date();
+var weekdays = ['日','一','二','三','四','五','六'];
+var h = now.getHours();
+var greeting = h < 6 ? '凌晨好' : h < 9 ? '早上好' : h < 12 ? '上午好' : h < 14 ? '中午好' : h < 18 ? '下午好' : h < 22 ? '晚上好' : '夜深了';
+document.getElementById('current-date').textContent = greeting + ' | ' + (now.getMonth()+1) + '月' + now.getDate() + '日 星期' + weekdays[now.getDay()];
+
+function esc(s) { return s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
+
+function formatDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function formatDayLabel(d) {
+  var today = new Date();
+  var todayStr = formatDate(today);
+  var dStr = formatDate(d);
+  // Yesterday
+  var yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  var yesterdayStr = formatDate(yesterday);
+  // Tomorrow
+  var tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = formatDate(tomorrow);
+
+  var dayOfWeek = ' 周' + weekdays[d.getDay()];
+  if (dStr === todayStr) return '今天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
+  if (dStr === yesterdayStr) return '昨天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
+  if (dStr === tomorrowStr) return '明天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
+  return (d.getMonth()+1) + '月' + d.getDate() + '日' + dayOfWeek;
+}
+
+var currentDay = new Date(now);
+currentDay.setHours(0,0,0,0);
+
+function changeDay(delta) {
+  currentDay.setDate(currentDay.getDate() + delta);
+  loadTasks();
+}
+
+function toggleTask(taskId, currentStatus, btn) {
+  var newStatus = currentStatus === 'done' ? 'pending' : 'done';
+  fetch('/api/tasks/' + taskId + '/status?status=' + newStatus + '&_=' + Date.now(), { method: 'PUT', cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function() { loadTasks(); })
+    .catch(function() { alert('更新失败'); });
+}
+
+function loadTasks() {
+  var dateStr = formatDate(currentDay);
+  document.getElementById('day-label').innerHTML = formatDayLabel(currentDay);
+  // Disable next button if today or future
+  var today = new Date();
+  today.setHours(0,0,0,0);
+  document.getElementById('day-next').disabled = (currentDay >= today);
+
+  var nowTime = now.getHours() * 60 + now.getMinutes();
+  var isToday = (formatDate(currentDay) === formatDate(now));
+
+  fetch('/api/tasks?date=' + dateStr + '&_=' + Date.now(), { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var tasks = data.tasks || [];
+      if (tasks.length === 0) {
+        document.getElementById('task-list').innerHTML = '<div class="empty">暂无任务</div>';
+        return;
+      }
+
+      var builtinTasks = [];
+      var userTasks = [];
+      tasks.forEach(function(t) {
+        if (t.type === 'builtin') builtinTasks.push(t);
+        else userTasks.push(t);
+      });
+
+      var html = '';
+
+      // Built-in recurring tasks
+      if (builtinTasks.length > 0) {
+        html += '<div class="task-section-title">🔧 系统任务</div>';
+        builtinTasks.forEach(function(t) { html += renderTask(t, isToday, nowTime); });
+      }
+
+      // User tasks
+      if (userTasks.length > 0) {
+        html += '<div class="task-section-title">👤 我的任务</div>';
+        userTasks.forEach(function(t) { html += renderTask(t, isToday, nowTime); });
+      }
+
+      document.getElementById('task-list').innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('task-list').innerHTML = '<div class="empty">加载失败</div>';
+    });
+}
+
+function renderTask(t, isToday, nowTime) {
+  var isDone = t.status === 'done';
+  var taskClass = isDone ? 'done' : '';
+  var checkClass = isDone ? 'checked' : '';
+  var checkIcon = isDone ? '✓' : '';
+
+  // Check if missed (past time, not done)
+  var missedBadge = '';
+  var missedClass = '';
+  if (!isDone && isToday && t.time) {
+    var parts = t.time.split(':');
+    var tMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+    if (tMin < nowTime - 60) { // more than 1 hour past
+      missedClass = 'missed';
+      missedBadge = '<span class="task-badge badge-missed">已过</span>';
+    }
+  }
+
+  var statusBadge = '';
+  if (isDone) statusBadge = '<span class="task-badge badge-done">✓ 完成</span>';
+  else if (missedClass) statusBadge = missedBadge;
+  else if (t.time) statusBadge = '<span class="task-badge badge-pending">待做</span>';
+
+  var typeBadge = t.type === 'builtin' ? '<span class="task-badge badge-builtin">系统</span>' : '<span class="task-badge badge-user">个人</span>';
+  var timeDisplay = t.time ? '<span class="task-time">🕐 ' + esc(t.time) + '</span>' : '';
+
+  var html = '<div class="task-item ' + taskClass + ' ' + missedClass + '">';
+  html += '<div class="task-checkbox ' + checkClass + '" onclick="toggleTask(\'' + t.id + '\', \'' + t.status + '\', this)">' + checkIcon + '</div>';
+  html += '<div class="task-info">';
+  html += '<div class="task-title">' + esc(t.title) + '</div>';
+  if (timeDisplay) html += timeDisplay;
+  html += '</div>';
+  html += typeBadge;
+  html += statusBadge;
+  html += '</div>';
+  return html;
+}
+
+// Initialize day
+loadTasks();
+
+// Stats
+fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
+  document.getElementById('s-conv').textContent = d.conversations||0;
+  document.getElementById('s-facts').textContent = d.facts||0;
+  document.getElementById('s-emo').textContent = d.emotions||0;
+  document.getElementById('s-assoc').textContent = d.associations||0;
+}).catch(function(){});
+
+// Emotions
+fetch('/api/emotions/summary?days=7&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).then(function(text){
+  if(!text || text.indexOf('(') < 0) { document.getElementById('emotions').innerHTML = '<div class="empty">暂无情绪数据</div>'; return; }
+  var lines = text.split('\n');
+  var items = [];
+  for(var i=0; i<lines.length; i++){
+    var line = lines[i];
+    var idx = line.indexOf(':');
+    if(idx < 0) continue;
+    var before = line.substring(0, idx).trim();
+    var after = line.substring(idx+1).trim();
+    var countMatch = after.match(/(\d+)/);
+    var pctMatch = after.match(/\((\d+)%\)/);
+    if(!countMatch || !pctMatch) continue;
+    var emoji = before.replace(/[^\S]/g, '');
+    var name = before.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}]/gu, '').trim();
+    items.push({emoji: emoji, name: name, count: parseInt(countMatch[1]), pct: parseInt(pctMatch[1])});
+  }
+  if(items.length===0) { document.getElementById('emotions').innerHTML = '<div class="empty">暂无情绪数据</div>'; return; }
+  var colors = ['#667eea','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4'];
+  var html = '<div class="emotion-chart">';
+  for(var j=0; j<items.length; j++){
+    var it = items[j];
+    var bg = colors[j % colors.length];
+    html += '<div class="emotion-row">';
+    html += '<div class="emotion-emoji">' + it.emoji + '</div>';
+    html += '<div class="emotion-bar-bg"><div class="emotion-bar-fill" style="width:' + it.pct + '%;background:' + bg + '">' + it.name + '</div></div>';
+    html += '<div class="emotion-count">' + it.count + '次</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  document.getElementById('emotions').innerHTML = html;
+}).catch(function(){ document.getElementById('emotions').innerHTML = '<div class="empty">暂无情绪数据</div>'; });
+
+// Facts
+fetch('/api/chat/history?limit=10').then(function(r){return r.json()}).then(function(d){
+  if(!d.messages || d.messages.length===0) { document.getElementById('facts').innerHTML = '<div class="empty">暂无记忆</div>'; return; }
+  var html = '<div class="facts-list">';
+  var msgs = d.messages.slice(0,6);
+  for(var i=0; i<msgs.length; i++){
+    var m = msgs[i];
+    var cls = m.role==='user' ? 'event' : 'other';
+    var label = m.role==='user' ? '对话' : '回复';
+    var content = esc(m.content).substring(0,120);
+    if(m.content.length > 120) content += '...';
+    html += '<div class="fact-item">';
+    html += '<span class="fact-type ' + cls + '">' + label + '</span>';
+    html += '<div class="fact-content">' + content + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  document.getElementById('facts').innerHTML = html;
+}).catch(function(){ document.getElementById('facts').innerHTML = '<div class="empty">暂无记忆</div>'; });
+
+// Phone
+fetch('/api/phone/summary').then(function(r){return r.json()}).then(function(d){
+  if(!d.record_count || d.record_count===0) { return; }
+  var total = d.total_screen_time;
+  var hours = Math.floor(total/3600);
+  var mins = Math.floor((total%3600)/60);
+  var html = '<div style="margin-bottom:10px;font-size:.9em;color:var(--text2)">总屏幕时间: <b>' + hours + 'h ' + mins + 'm</b></div>';
+  if(d.app_breakdown && d.app_breakdown.length > 0) {
+    var maxDur = 0;
+    for(var k=0; k<d.app_breakdown.length; k++) { if(d.app_breakdown[k].duration > maxDur) maxDur = d.app_breakdown[k].duration; }
+    html += '<div class="phone-grid">';
+    for(var i=0; i<d.app_breakdown.length; i++){
+      var app = d.app_breakdown[i];
+      var m = Math.floor(app.duration/60);
+      var pct = maxDur>0 ? Math.round(app.duration/maxDur*100) : 0;
+      html += '<div class="phone-app">';
+      html += '<div class="app-name">' + esc(app.name) + '</div>';
+      html += '<div class="app-time">' + m + '分钟</div>';
+      html += '<div class="app-bar"><div class="app-bar-fill" style="width:' + pct + '%"></div></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  document.getElementById('phone').innerHTML = html;
+}).catch(function(){});
+
+// Messages
+fetch('/api/chat/history?limit=20').then(function(r){return r.json()}).then(function(d){
+  var el = document.getElementById('messages');
+  if(!d.messages || d.messages.length===0) { el.innerHTML = '<div class="empty">暂无对话记录</div>'; return; }
+  var html = '';
+  var msgs = d.messages.slice().reverse();
+  for(var i=0; i<msgs.length; i++){
+    var m = msgs[i];
+    var cls = m.role==='user' ? 'user' : 'assistant';
+    var name = m.role==='user' ? '你' : '小柏';
+    var time = new Date(m.timestamp).toLocaleString('zh-CN');
+    var c = esc(m.content).split('\n').join('<br>');
+    html += '<div class="message ' + cls + '">';
+    html += '<div class="role"><span class="name">' + name + '</span><span class="time">' + time + '</span></div>';
+    html += '<div class="content">' + c + '</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}).catch(function(){ document.getElementById('messages').innerHTML = '<div class="empty">加载失败</div>'; });
+
+// Upcoming tasks
+fetch('/api/tasks/upcoming?_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).then(function(d){
+  var el = document.getElementById('upcoming-tasks');
+  var tasks = d.tasks || [];
+  if(tasks.length === 0) { el.innerHTML = '<div class="empty">暂无待办任务</div>'; return; }
+
+  var now = new Date();
+  var today = formatDate(now);
+  var tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = formatDate(tomorrow);
+
+  var html = '<div class="upcoming-list">';
+  for(var i = 0; i < tasks.length; i++){
+    var t = tasks[i];
+    var taskDate = t.date;
+    var countdownClass = '';
+    var countdownText = '';
+
+    if(taskDate === today) {
+      countdownClass = 'countdown-today';
+      if(t.time) {
+        var parts = t.time.split(':');
+        var taskMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+        var nowMin = now.getHours() * 60 + now.getMinutes();
+        var diff = taskMin - nowMin;
+        if(diff > 0) countdownText = diff + '分钟后';
+        else if(diff > -60) countdownText = '已开始';
+        else countdownText = '已过' + Math.abs(diff) + '分钟';
+      } else {
+        countdownText = '今天';
+      }
+    } else if(taskDate === tomorrowStr) {
+      countdownClass = 'countdown-tomorrow';
+      countdownText = '明天';
+    } else {
+      countdownClass = 'countdown-later';
+      var d = new Date(taskDate);
+      var daysDiff = Math.ceil((d - now) / (1000*60*60*24));
+      countdownText = daysDiff + '天后';
+    }
+
+    var dateDisplay = taskDate.substring(5).replace('-', '/');
+    var timeDisplay = t.time ? ' 🕐 ' + esc(t.time) : '';
+
+    html += '<div class="upcoming-item">';
+    html += '<div class="upcoming-date">' + dateDisplay + '</div>';
+    html += '<div class="upcoming-info">';
+    html += '<div class="upcoming-title">' + esc(t.title) + '</div>';
+    if(t.time) html += '<div class="upcoming-time">计划时间: ' + esc(t.time) + '</div>';
+    html += '</div>';
+    html += '<div class="upcoming-countdown ' + countdownClass + '">' + countdownText + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}).catch(function(){ document.getElementById('upcoming-tasks').innerHTML = '<div class="empty">加载失败</div>'; });
+
+// Auto-refresh every 30 seconds
+setInterval(function() {
+  loadTasks();
+  // Also refresh stats
+  fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
+    document.getElementById('s-conv').textContent = d.conversations||0;
+    document.getElementById('s-facts').textContent = d.facts||0;
+    document.getElementById('s-emo').textContent = d.emotions||0;
+    document.getElementById('s-assoc').textContent = d.associations||0;
+  }).catch(function(){});
+}, 30000);
+</script>
+</body>
+</html>

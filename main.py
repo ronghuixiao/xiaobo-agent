@@ -188,6 +188,42 @@ async def daemon_mode(settings):
         except Exception as e:
             logger.warning(f"mark task done failed: {e}")
 
+    def _detect_task_completion(message: str):
+        """检测对话中是否提到任务完成，并更新任务状态"""
+        import sqlite3 as _sqlite3
+        from datetime import datetime as _dt
+        import os as _os
+        
+        # 完成任务的关键词
+        completion_keywords = ["完成", "做完", "搞定了", "做完了", "完成了", "done", "finished"]
+        
+        # 检查是否包含完成关键词
+        if not any(keyword in message.lower() for keyword in completion_keywords):
+            return
+        
+        try:
+            _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
+            _conn = _sqlite3.connect(_db, timeout=10)
+            today = _dt.now().strftime("%Y-%m-%d")
+            
+            # 获取今天的待办任务
+            pending_tasks = _conn.execute(
+                "SELECT id, title FROM tasks WHERE date = ? AND status = 'pending'",
+                (today,)
+            ).fetchall()
+            
+            for task_id, task_title in pending_tasks:
+                # 检查消息中是否包含任务标题的关键词
+                task_keywords = task_title.lower().split()
+                if any(keyword in message.lower() for keyword in task_keywords if len(keyword) > 1):
+                    _conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
+                    logger.info(f"✅ 任务已完成: {task_title} ({task_id})")
+            
+            _conn.commit()
+            _conn.close()
+        except Exception as e:
+            logger.warning(f"检测任务完成失败: {e}")
+    
     # send_to_user 在 wechat_conn/feishu_conn 定义之后再创建（见下方）
 
     # 每日 22:00 日报推送
@@ -566,6 +602,9 @@ async def daemon_mode(settings):
             else:
                 response = await handler.handle_message(content)
                 await feishu_conn.broadcast(msg.chat_id, response)
+                # 检测对话中是否提到任务完成
+                _detect_task_completion(content)
+                _detect_task_completion(response)
             
             logger.info(f"已回复飞书 [{msg.sender_name}]")
         
@@ -629,6 +668,9 @@ async def daemon_mode(settings):
                     else:
                         response = await handler.handle_message(msg.content)
                         await wechat_conn.broadcast(msg.sender_id, response)
+                        # 检测对话中是否提到任务完成
+                        _detect_task_completion(msg.content)
+                        _detect_task_completion(response)
 
                     logger.info(f"已回复 [{msg.sender_name}]")
         except KeyboardInterrupt:
