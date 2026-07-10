@@ -1163,3 +1163,115 @@ const lines = chunk.split('\\n');
 2. **多层转义容易出错** - Python → HTML → JavaScript，每层都可能引入转义问题
 3. **测试要用真实数据** - SSE事件包含实际换行符，不能只测试字面量
 4. **十六进制查看很有用** - 用 `xxd` 查看文件原始字节，避免显示层的转义干扰
+
+---
+
+### 问题26：Chat说任务完成时Dashboard不自动更新状态
+
+**现象**：
+- 用户在Chat中说"实验做完了"，LLM回复确认了
+- 但Dashboard中任务状态仍然是pending，没有自动更新为done
+- 之前以为是JavaScript转义问题，修复后发现任务状态仍然不更新
+
+**根因分析**：
+1. **`_detect_task_completion` 函数缺少 `ChatMessage` 导入** - 函数内部使用了 `ChatMessage` 但没有导入
+2. **API端点没有调用任务完成功能检测** - 只有飞书消息处理才会调用，Chat API没有调用
+
+**问题详情**：
+```python
+# 问题1：ChatMessage 未导入
+def _detect_task_completion(message: str):
+    # ...
+    response = await llm.chat([ChatMessage(role="user", content=prompt)])  # ❌ NameError
+    # ...
+
+# 问题2：API端点没有调用任务检测
+@router.post("/api/chat")
+async def chat_send(req: ChatRequest):
+    reply = await _handler.handle_message(req.message)
+    # ❌ 缺少 _detect_task_completion 调用
+    return ChatResponse(reply=reply, ...)
+```
+
+**修复方案**：
+
+1. **创建独立的任务检测模块**（src/utils/task_detector.py）
+   ```python
+   def detect_task_completion_sync(message: str, llm, logger=None):
+       """同步版本的任务完成检测（在新线程中运行）"""
+       # 提取完整的检测逻辑
+       # 支持传入 logger 便于调试
+   ```
+
+2. **在 API 端点中添加任务完成检测**
+   ```python
+   # /api/chat 端点
+   reply = await _handler.handle_message(req.message)
+   detect_task_completion_sync(req.message, _handler.llm, logger)
+   detect_task_completion_sync(reply, _handler.llm, logger)
+   
+   # /api/chat/stream 端点
+   async for chunk in _handler.stream_handle_message(req.message):
+       full_response += chunk
+       yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+   detect_task_completion_sync(req.message, _handler.llm, logger)
+   detect_task_completion_sync(full_response, _handler.llm, logger)
+   ```
+
+3. **修复 main.py 中的导入**
+   ```python
+   # 在 _detect_task_completion 函数中添加
+   from src.llm.base import ChatMessage
+   ```
+
+4. **添加详细的日志输出**
+   ```python
+   logger.info(f"🔍 检测任务完成: {message[:50]}...")
+   logger.info(f"🔍 待办任务: {[t[1] for t in pending_tasks]}")
+   logger.info(f"🔍 LLM响应: {response.content[:200]}")
+   logger.info(f"🔍 解析到完成任务: {completed_tasks}")
+   ```
+
+**修改的文件**：
+- `src/utils/task_detector.py` - 新建独立任务检测模块
+- `src/api/chat.py` - 在两个端点中添加任务完成检测
+- `main.py` - 添加 ChatMessage 导入，添加详细日志
+
+**验证结果**：
+```
+✅ 语法检查通过
+✅ 服务正常启动
+✅ Chat中说"实验做完了" → 实验任务自动标记为done
+✅ Dashboard自动刷新显示最新状态
+✅ 日志输出完整，便于调试
+```
+
+**技术细节**：
+1. **任务检测流程**：
+   ```
+   用户发送消息 → API端点
+       ↓
+   handler.handle_message() 生成回复
+       ↓
+   detect_task_completion_sync(用户消息)
+   detect_task_completion_sync(助手回复)
+       ↓
+   新线程运行异步检测
+       ↓
+   获取待办任务列表
+       ↓
+   调用 LLM 判断是否完成
+       ↓
+   更新数据库状态
+   ```
+
+2. **为什么要检测两次**：
+   - 用户消息："实验做完了" → LLM 可能判断为完成
+   - 助手回复："好的，实验已完成" → LLM 也可能判断为完成
+   - 两次检测提高准确率
+
+**教训**：
+1. **功能要完整实现** - 之前只在飞书端调用了任务检测，遗漏了API端
+2. **模块化便于复用** - 提取独立模块后，多个端点都能使用
+3. **日志很重要** - 添加详细日志后能快速定位问题
+4. **测试要全面** - 需要测试所有入口（Chat、飞书、微信）的功能
