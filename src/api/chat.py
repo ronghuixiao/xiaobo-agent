@@ -364,7 +364,7 @@ function hideWelcome() {
 
 // Format message content (handle line breaks)
 function formatMessage(content) {
-  return escapeHtml(content).replace(/\n/g, '<br>');
+  return escapeHtml(content).replace(/\\n/g, '<br>');
 }
 
 // Add message to chat
@@ -461,7 +461,7 @@ async function sendMessage() {
       if (done) break;
       
       const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+      const lines = chunk.split('\\n');
       
       for (const line of lines) {
         if (line.startsWith('data: ')) {
