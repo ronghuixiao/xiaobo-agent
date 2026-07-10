@@ -189,41 +189,86 @@ async def daemon_mode(settings):
             logger.warning(f"mark task done failed: {e}")
 
     def _detect_task_completion(message: str):
-        """检测对话中是否提到任务完成，并更新任务状态"""
+        """使用LLM检测对话中是否提到任务完成，并更新任务状态"""
         import sqlite3 as _sqlite3
         from datetime import datetime as _dt
         import os as _os
+        import json as _json
+        import asyncio
+        import threading
         
-        # 完成任务的关键词
-        completion_keywords = ["完成", "做完", "搞定了", "做完了", "完成了", "done", "finished"]
+        def _run_async():
+            """在新线程中运行异步检测"""
+            async def _async_detect():
+                try:
+                    _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
+                    _conn = _sqlite3.connect(_db, timeout=10)
+                    today = _dt.now().strftime("%Y-%m-%d")
+                    
+                    # 获取今天的待办任务
+                    pending_tasks = _conn.execute(
+                        "SELECT id, title FROM tasks WHERE date = ? AND status = 'pending'",
+                        (today,)
+                    ).fetchall()
+                    
+                    if not pending_tasks:
+                        _conn.close()
+                        return
+                    
+                    # 构建任务列表
+                    task_list = "\n".join([f"- {task_id}: {task_title}" for task_id, task_title in pending_tasks])
+                    
+                    # 使用LLM判断任务完成
+                    prompt = f"""判断用户消息中是否表达了某个任务已完成。
+今天的待办任务：
+{task_list}
+用户消息："{message}"
+规则：
+- 判断是否表达"完成了/做完了/搞定了/OK了/结束了/通过了/交了/过了"等任何完成含义
+- 只匹配列表中的任务
+- 返回JSON数组，格式为[{{"task_id": "xxx", "completed": true}}]，没有匹配返回[]
+只返回JSON。"""
+                    
+                    # 调用LLM
+                    response = await llm.chat([ChatMessage(role="user", content=prompt)])
+                    
+                    # 解析LLM返回的JSON
+                    try:
+                        # 提取JSON部分
+                        response_text = response.content
+                        start_idx = response_text.find('[')
+                        end_idx = response_text.rfind(']') + 1
+                        if start_idx != -1 and end_idx != -1:
+                            json_str = response_text[start_idx:end_idx]
+                            completed_tasks = _json.loads(json_str)
+                            
+                            # 更新任务状态
+                            for task in completed_tasks:
+                                if task.get("completed") and task.get("task_id"):
+                                    task_id = task["task_id"]
+                                    # 验证任务ID是否在pending列表中
+                                    if any(t[0] == task_id for t in pending_tasks):
+                                        _conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
+                                        logger.info(f"✅ 任务已完成(LLM检测): {task_id}")
+                    except (_json.JSONDecodeError, KeyError, TypeError) as e:
+                        logger.warning(f"解析LLM任务完成检测结果失败: {e}")
+                    
+                    _conn.commit()
+                    _conn.close()
+                except Exception as e:
+                    logger.warning(f"检测任务完成失败: {e}")
+            
+            # 运行异步检测
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_async_detect())
+            finally:
+                loop.close()
         
-        # 检查是否包含完成关键词
-        if not any(keyword in message.lower() for keyword in completion_keywords):
-            return
-        
-        try:
-            _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            today = _dt.now().strftime("%Y-%m-%d")
-            
-            # 获取今天的待办任务
-            pending_tasks = _conn.execute(
-                "SELECT id, title FROM tasks WHERE date = ? AND status = 'pending'",
-                (today,)
-            ).fetchall()
-            
-            for task_id, task_title in pending_tasks:
-                # 检查消息中是否包含任务标题的关键词
-                task_keywords = task_title.lower().split()
-                if any(keyword in message.lower() for keyword in task_keywords if len(keyword) > 1):
-                    _conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
-                    logger.info(f"✅ 任务已完成: {task_title} ({task_id})")
-            
-            _conn.commit()
-            _conn.close()
-        except Exception as e:
-            logger.warning(f"检测任务完成失败: {e}")
-    
+        # 在新线程中运行
+        thread = threading.Thread(target=_run_async, daemon=True)
+        thread.start()
     # send_to_user 在 wechat_conn/feishu_conn 定义之后再创建（见下方）
 
     # 每日 22:00 日报推送
