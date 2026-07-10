@@ -188,6 +188,74 @@ async def daemon_mode(settings):
         except Exception as e:
             logger.warning(f"mark task done failed: {e}")
 
+    def _detect_task_list(message: str):
+        """检测用户输入的任务列表并保存到数据库
+        
+        识别格式：
+        - 今日任务：A；B；C
+        - 任务清单：A、B、C
+        - 今天要做：A, B, C
+        """
+        import sqlite3 as _sqlite3
+        from datetime import datetime as _dt
+        import os as _os
+        import re
+        
+        # 检测任务列表模式
+        patterns = [
+            r'今日任务[：:]\s*(.+)',
+            r'任务清单[：:]\s*(.+)',
+            r'今天要做[：:]\s*(.+)',
+            r'今天的任务[：:]\s*(.+)',
+            r'今日待办[：:]\s*(.+)',
+        ]
+        
+        tasks = []
+        for pattern in patterns:
+            match = re.search(pattern, message)
+            if match:
+                # 提取任务列表（支持；、，,分隔）
+                task_str = match.group(1)
+                tasks = re.split(r'[；;、，,]', task_str)
+                tasks = [t.strip() for t in tasks if t.strip()]
+                break
+        
+        if not tasks:
+            return  # 没有检测到任务列表
+        
+        today = _dt.now().strftime("%Y-%m-%d")
+        
+        try:
+            _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
+            _conn = _sqlite3.connect(_db, timeout=10)
+            
+            # 获取今天的待办任务（避免重复）
+            existing = _conn.execute(
+                "SELECT title FROM tasks WHERE date = ? AND type = 'user' AND status = 'pending'",
+                (today,)
+            ).fetchall()
+            existing_titles = {row[0] for row in existing}
+            
+            # 只添加不存在的任务
+            new_count = 0
+            for task_title in tasks:
+                if task_title not in existing_titles:
+                    task_id = f"user-{today}-{hash(task_title) % 1000000:06d}"
+                    _conn.execute(
+                        "INSERT INTO tasks (id, title, date, time, status, type, created_at) VALUES (?, ?, ?, '', 'pending', 'user', ?)",
+                        (task_id, task_title, today, _dt.now().isoformat())
+                    )
+                    new_count += 1
+                    logger.info(f"📝 新增任务: {task_title}")
+            
+            if new_count > 0:
+                _conn.commit()
+                logger.info(f"✅ 今日任务已保存: 共{new_count}个新任务")
+            
+            _conn.close()
+        except Exception as e:
+            logger.warning(f"保存任务列表失败: {e}")
+
     def _detect_task_completion(message: str):
         """使用LLM检测对话中是否提到任务完成，并更新任务状态"""
         import sqlite3 as _sqlite3
@@ -647,7 +715,8 @@ async def daemon_mode(settings):
             else:
                 response = await handler.handle_message(content)
                 await feishu_conn.broadcast(msg.chat_id, response)
-                # 检测对话中是否提到任务完成
+                # 检测任务列表和任务完成
+                _detect_task_list(content)
                 _detect_task_completion(content)
                 _detect_task_completion(response)
             
@@ -713,7 +782,8 @@ async def daemon_mode(settings):
                     else:
                         response = await handler.handle_message(msg.content)
                         await wechat_conn.broadcast(msg.sender_id, response)
-                        # 检测对话中是否提到任务完成
+                        # 检测任务列表和任务完成
+                        _detect_task_list(msg.content)
                         _detect_task_completion(msg.content)
                         _detect_task_completion(response)
 
