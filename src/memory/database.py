@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS facts (
     content TEXT NOT NULL,
     confidence REAL DEFAULT 1.0,
     source_message_id TEXT,
+    event_time TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     is_active INTEGER DEFAULT 1
@@ -187,8 +188,8 @@ class MemoryDatabase:
         await self._db.execute(
             """INSERT INTO facts
                (id, fact_type, subject, content, confidence, source_message_id,
-                created_at, updated_at, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                event_time, created_at, updated_at, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 fact.id,
                 fact.fact_type,
@@ -196,6 +197,7 @@ class MemoryDatabase:
                 fact.content,
                 fact.confidence,
                 fact.source_message_id,
+                fact.event_time,
                 fact.created_at.isoformat(),
                 fact.updated_at.isoformat(),
                 int(fact.is_active),
@@ -242,6 +244,7 @@ class MemoryDatabase:
                 content=row["content"],
                 confidence=row["confidence"],
                 source_message_id=row["source_message_id"],
+                event_time=row["event_time"],
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
                 is_active=bool(row["is_active"]),
@@ -265,6 +268,7 @@ class MemoryDatabase:
                 content=row["content"],
                 confidence=row["confidence"],
                 source_message_id=row["source_message_id"],
+                event_time=row["event_time"],
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
                 is_active=bool(row["is_active"]),

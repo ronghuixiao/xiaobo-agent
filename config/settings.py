@@ -48,11 +48,25 @@ class WechatConfig(BaseModel):
     owner_id: str = ""
 
 
+class FeishuConfig(BaseModel):
+    """飞书配置"""
+    enabled: bool = False
+    app_id: str = ""
+    app_secret: str = ""
+    encrypt_key: str = ""
+    verification_token: str = ""
+    # 你的飞书 open_id（用于接收主动消息）
+    owner_id: str = ""
+    # webhook 端口
+    webhook_port: int = 9000
+
+
 class Settings(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     companion: CompanionConfig = Field(default_factory=CompanionConfig)
     wechat: WechatConfig = Field(default_factory=WechatConfig)
+    feishu: FeishuConfig = Field(default_factory=FeishuConfig)
 
 
 def load_settings(config_path: Optional[str] = None) -> Settings:

@@ -32,7 +32,10 @@ EP_SEND_TYPING = "ilink/bot/sendtyping"
 EP_GET_BOT_QR = "ilink/bot/get_bot_qrcode"
 EP_GET_QR_STATUS = "ilink/bot/get_qrcode_status"
 
-TOKEN_DIR = Path("~/.xiaobo-agent")
+# iLink bot_type: 3 = 个人微信扫码登录
+ILINK_BOT_TYPE = "3"
+
+TOKEN_DIR = Path("~/.xiaobo-agent").expanduser()
 TOKEN_FILE = TOKEN_DIR / "wechat_token"
 
 
@@ -50,7 +53,7 @@ def _headers(token: Optional[str] = None) -> Dict[str, str]:
         "iLink-App-Version": CHANNEL_VERSION,
     }
     if token:
-        headers["Authorization"] = token
+        headers["Authorization"] = f"Bearer {token}"
     return headers
 
 
@@ -92,6 +95,7 @@ class WechatConnection:
         self._session: Optional[aiohttp.ClientSession] = None
         self._running = False
         self._context_tokens: Dict[str, str] = {}
+        self._sync_buf: str = ""  # 长轮询同步缓冲
 
     # ==================== Token 管理 ====================
 
@@ -131,102 +135,138 @@ class WechatConnection:
     async def qr_login(self) -> str:
         """QR 码登录流程
 
-        1. 请求 QR 码
-        2. 轮询扫码状态
+        1. GET 请求获取 QR 码
+        2. GET 长轮询扫码状态 (status 字段: wait/scaned/confirmed/expired)
         3. 返回并保存 token
         """
         if not self._session:
             self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=60)
+                timeout=aiohttp.ClientTimeout(total=60),
+                trust_env=True,
             )
 
-        # Step 1: 获取 QR 码
+        # Step 1: 获取 QR 码 (GET 请求)
         logger.info("正在获取微信登录二维码...")
-        payload = {
-            "base_req": {
-                "token": "",
-                "client_version": CHANNEL_VERSION,
-            }
+        qr_headers = {
+            "iLink-App-Id": ILINK_APP_ID,
+            "iLink-App-ClientVersion": CHANNEL_VERSION,
         }
 
-        qr_ticket = ""
+        qrcode_value = ""
+        qr_url = ""
         try:
-            async with self._session.post(
-                f"{ILINK_BASE_URL}/{EP_GET_BOT_QR}",
-                json=payload,
-                headers=_headers(),
+            url = f"{ILINK_BASE_URL}/{EP_GET_BOT_QR}?bot_type={ILINK_BOT_TYPE}"
+            async with self._session.get(
+                url,
+                headers=qr_headers,
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                data = await resp.json()
-                logger.info(f"QR 响应: errcode={data.get('errcode', 'N/A')}")
+                raw = await resp.read()
+                data = json.loads(raw)
 
-                if data.get("errcode", 0) != 0 and data.get("errcode") is not None:
+                if data.get("ret", -1) != 0:
                     logger.error(f"获取 QR 码失败: {data}")
                     return ""
 
-                qr_url = data.get("qr_url", "")
-                qr_ticket = data.get("ticket", "")
+                qrcode_value = str(data.get("qrcode") or "")
+                qr_url = str(data.get("qrcode_img_content") or "")
 
-                if qr_url:
-                    print(f"\n{'='*50}")
-                    print(f"📱 请用微信扫描以下二维码:")
-                    print(f"{'='*50}")
-                    print(f"QR URL: {qr_url}")
-                    print(f"{'='*50}\n")
-                elif qr_ticket:
-                    print(f"\n🎫 Ticket: {qr_ticket}")
-                    print("请在微信中扫描二维码...\n")
-                else:
-                    logger.warning("未获取到 QR 码数据")
+                if not qrcode_value:
+                    logger.error("QR 响应缺少 qrcode 字段")
                     return ""
+
+                print(f"\n{'='*50}")
+                print(f"📱 请用微信扫描以下二维码:")
+                print(f"{'='*50}")
+                if qr_url:
+                    print(f"QR URL: {qr_url}")
+                print(f"{'='*50}\n")
 
         except Exception as e:
             logger.error(f"获取 QR 码异常: {e}")
             return ""
 
-        # Step 2: 轮询扫码状态
+        # Step 2: 轮询扫码状态 (GET 长轮询)
         logger.info("等待扫码中...")
-        max_wait = 120
-        poll_interval = 2
+        import time
+        deadline = time.time() + 300  # 5 分钟超时
+        refresh_count = 0
 
-        for i in range(max_wait // poll_interval):
-            await asyncio.sleep(poll_interval)
-
+        while time.time() < deadline:
             try:
-                status_payload = {
-                    "base_req": {
-                        "token": qr_ticket,
-                        "client_version": CHANNEL_VERSION,
-                    }
-                }
-                async with self._session.post(
-                    f"{ILINK_BASE_URL}/{EP_GET_QR_STATUS}",
-                    json=status_payload,
-                    headers=_headers(),
-                    timeout=aiohttp.ClientTimeout(total=10),
+                status_url = f"{ILINK_BASE_URL}/{EP_GET_QR_STATUS}?qrcode={qrcode_value}"
+                async with self._session.get(
+                    status_url,
+                    headers=qr_headers,
+                    timeout=aiohttp.ClientTimeout(total=35),
                 ) as resp:
-                    status_data = await resp.json()
-                    errcode = status_data.get("errcode", -1)
+                    raw = await resp.read()
+                    status_data = json.loads(raw)
 
-                    if errcode == 0:
-                        token = status_data.get("token", "")
-                        if token:
-                            self.token = token
-                            self.save_token(token)
-                            print(f"✅ 微信登录成功！")
-                            return token
-                    elif errcode == -14:
-                        logger.info("二维码已过期，重新获取中...")
-                        return await self.qr_login()
-                    else:
-                        if i % 5 == 0:
-                            logger.info(f"等待扫码... ({i*poll_interval}s)")
+                    status = str(status_data.get("status") or "wait")
 
-            except Exception as e:
-                logger.warning(f"轮询扫码状态异常: {e}")
+                    if status == "wait":
+                        print(".", end="", flush=True)
+                    elif status == "scaned":
+                        print("\n已扫码，请在微信里确认...")
+                    elif status == "scaned_but_redirect":
+                        redirect_host = str(status_data.get("redirect_host") or "")
+                        if redirect_host:
+                            logger.info(f"重定向到: {redirect_host}")
+                            # 更新 base_url 用于后续请求
+                    elif status == "expired":
+                        refresh_count += 1
+                        if refresh_count > 3:
+                            print("\n二维码多次过期，请重新执行登录。")
+                            return ""
+                        print(f"\n二维码已过期，正在刷新... ({refresh_count}/3)")
+                        try:
+                            async with self._session.get(
+                                f"{ILINK_BASE_URL}/{EP_GET_BOT_QR}?bot_type={ILINK_BOT_TYPE}",
+                                headers=qr_headers,
+                                timeout=aiohttp.ClientTimeout(total=15),
+                            ) as refresh_resp:
+                                refresh_raw = await refresh_resp.read()
+                                refresh_data = json.loads(refresh_raw)
+                                qrcode_value = str(refresh_data.get("qrcode") or "")
+                                qr_url = str(refresh_data.get("qrcode_img_content") or "")
+                                if qr_url:
+                                    print(f"新二维码: {qr_url}")
+                        except Exception as exc:
+                            logger.error(f"刷新二维码失败: {exc}")
+                            return ""
+                    elif status == "confirmed":
+                        account_id = str(status_data.get("ilink_bot_id") or "")
+                        token = str(status_data.get("bot_token") or "")
+                        base_url = str(status_data.get("baseurl") or ILINK_BASE_URL)
+
+                        if not account_id or not token:
+                            logger.error("扫码确认但凭据不完整")
+                            return ""
+
+                        self.token = token
+                        self.save_token(token)
+                        print(f"\n✅ 微信登录成功！account_id={account_id}")
+                        return token
+
+            except asyncio.TimeoutError:
+                # 长轮询超时是正常的，继续轮询
+                continue
+            except Exception as exc:
+                logger.warning(f"轮询异常: {exc}")
+                await asyncio.sleep(1)
+                continue
+
+            await asyncio.sleep(1)
 
         logger.warning("等待扫码超时")
         return ""
+
+    async def close(self):
+        """关闭 session"""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     # ==================== 消息收发 ====================
 
@@ -235,11 +275,10 @@ class WechatConnection:
         if not self._session or not self._running:
             return []
 
+        # Hermes 格式: get_updates_buf 做长轮询
         payload = {
-            "base_req": {
-                "token": self.token,
-                "client_version": CHANNEL_VERSION,
-            }
+            "get_updates_buf": self._sync_buf,
+            "base_info": {"channel_version": CHANNEL_VERSION},
         }
 
         try:
@@ -253,15 +292,23 @@ class WechatConnection:
                     logger.warning(f"轮询失败: HTTP {resp.status}")
                     return []
 
-                data = await resp.json()
+                raw = await resp.read()
+                try:
+                    data = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    logger.warning(f"轮询响应解析失败: {raw[:100]!r}")
+                    return []
+
+                # 更新 sync_buf
+                self._sync_buf = data.get("get_updates_buf", self._sync_buf)
 
                 # Session expired
-                if data.get("errcode") == -14:
+                if data.get("ret") == -14:
                     logger.warning("Session 过期，需要重新扫码")
                     return []
 
                 messages = []
-                for item in data.get("messages", []):
+                for item in data.get("msgs", []):
                     msg = self._parse_message(item)
                     if msg:
                         messages.append(msg)
@@ -274,30 +321,30 @@ class WechatConnection:
             return []
 
     def _parse_message(self, item: Dict[str, Any]) -> Optional[WechatMessage]:
-        """解析 iLink 消息格式"""
+        """解析 iLink 消息格式 (Hermes 兼容)"""
         try:
-            msg_id = str(item.get("msg_id", ""))
-            sender = item.get("sender", {})
-            content_items = item.get("content", [])
-            context_token = item.get("context_token", "")
+            # Hermes 格式: from_user_id, item_list, text_item
+            from_user_id = str(item.get("from_user_id") or "")
+            msg_id = str(item.get("msg_id") or item.get("client_id") or "")
+            context_token = str(item.get("context_token") or "")
+            item_list = item.get("item_list", [])
 
             text = ""
-            for ci in content_items:
-                if ci.get("type") == 1:  # TEXT
-                    text = ci.get("text", "")
+            for i in item_list:
+                if i.get("type") == 1:  # ITEM_TEXT
+                    text = str((i.get("text_item") or {}).get("text") or "")
                     break
 
             if not text:
                 return None
 
-            sender_id = str(sender.get("id", ""))
-            if sender_id and context_token:
-                self._context_tokens[sender_id] = context_token
+            if from_user_id and context_token:
+                self._context_tokens[from_user_id] = context_token
 
             return WechatMessage(
                 msg_id=msg_id,
-                sender_id=sender_id,
-                sender_name=sender.get("name", ""),
+                sender_id=from_user_id,
+                sender_name=item.get("from_nickname", ""),
                 content=text,
                 msg_type=item.get("msg_type", 1),
                 context_token=context_token,
@@ -307,19 +354,28 @@ class WechatConnection:
             return None
 
     async def send_text(self, peer_id: str, text: str) -> bool:
-        """发送文本消息"""
+        """发送文本消息 (Hermes 兼容格式)"""
         if not self._session or not self._running:
             return False
 
         context_token = self._context_tokens.get(peer_id, "")
+        import uuid as _uuid
+        client_id = str(_uuid.uuid4())
+
+        message = {
+            "from_user_id": "",
+            "to_user_id": peer_id,
+            "client_id": client_id,
+            "message_type": 2,  # MSG_TYPE_BOT
+            "message_state": 2,  # MSG_STATE_FINISH
+            "item_list": [{"type": 1, "text_item": {"text": text}}],
+        }
+        if context_token:
+            message["context_token"] = context_token
+
         payload = {
-            "base_req": {
-                "token": self.token,
-                "client_version": CHANNEL_VERSION,
-            },
-            "to_user": peer_id,
-            "context_token": context_token,
-            "content": [{"type": 1, "text": text}],
+            "msg": message,
+            "base_info": {"channel_version": CHANNEL_VERSION},
         }
 
         try:
@@ -328,8 +384,14 @@ class WechatConnection:
                 json=payload,
                 headers=_headers(self.token),
             ) as resp:
-                data = await resp.json()
-                if data.get("errcode", 0) != 0:
+                # 处理可能的 octet-stream content type
+                raw = await resp.read()
+                try:
+                    data = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    logger.warning(f"发送响应解析失败: {raw[:100]!r}")
+                    return False
+                if data.get("ret", 0) != 0:
                     logger.warning(f"发送失败: {data}")
                     return False
                 return True

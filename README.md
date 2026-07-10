@@ -14,6 +14,7 @@
 - 🔔 **主动提醒** — 情绪关怀、屏幕时间、每日签到
 - 📱 **手机监控** — 接收 Android 使用数据，分析习惯
 - 🌐 **Web Dashboard** — 浏览记忆、情绪、统计
+- 💻 **Web 聊天** — 浏览器直接和小柏对话，与微信共享记忆
 
 ## 快速开始
 
@@ -35,6 +36,16 @@ python main.py --daemon
 python main.py --web
 ```
 
+### Web 聊天
+```bash
+# 启动后访问 http://服务器IP:8088/chat
+python main.py --daemon
+# 或
+python main.py --web
+```
+
+浏览器打开 `/chat` 即可和小柏对话，微信和网页共享同一套对话记忆。
+
 ## 项目结构
 
 ```
@@ -44,7 +55,9 @@ xiaobo-agent/
 │   ├── memory/           # 分层记忆系统 + 语义检索
 │   ├── companion/        # 对话 + 情绪 + 报告 + 主动提醒 + 模式分析
 │   ├── wechat/           # 微信连接层 (iLink Bot API)
-│   ├── api/              # FastAPI 端点 (手机监控)
+│   ├── api/              # FastAPI 端点 (手机监控 + Web 聊天)
+│   │   ├── chat.py       # Web 聊天 API + 聊天页面
+│   │   └── phone.py      # 手机监控端点
 │   └── dashboard/        # Web Dashboard
 ├── tests/                # 测试 (55 个)
 ├── config/               # 配置管理

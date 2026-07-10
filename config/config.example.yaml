@@ -2,51 +2,43 @@
 # 复制为 config.yaml 并填入你的配置
 
 llm:
-  # 默认使用本地 Ollama
-  provider: "ollama"
+  provider: "ollama"  # 或 "openai"
   ollama:
     base_url: "http://localhost:11434"
     model: "qwen2.5:1.5b"
-    embedding_model: "nomic-embed-text"
-    temperature: 0.7
-    max_tokens: 2048
-
-  # OpenAI 兼容 API（支持 Mimo、OpenAI 等）
-  # provider: "openai"
-  # openai:
-  #   api_key: "your-api-key"
-  #   base_url: "https://api.openai.com/v1"  # 或 Mimo 的 URL
-  #   model: "gpt-4o-mini"
-  #   temperature: 0.7
+  openai:
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4o-mini"
 
 memory:
   db_path: "~/.xiaobo-agent/memory.db"
-  max_context_messages: 50  # 每次对话最多带入的历史消息数
+  max_context_messages: 50
 
 companion:
   name: "小柏"
   user_name: "荣慧"
-  daily_report_hour: 22  # 每天几点发日报
+  daily_report_hour: 22
   daily_report_minute: 0
 
+# 微信配置（基于 iLink Bot API）
 wechat:
-  # iLink Bot API 配置（参考 Hermes）
-  # 守护模式下启用微信扫码连接
   enabled: false
-  ilink_token: ""  # 从 Hermes 配置或 iLink 获取
-  owner_id: ""     # 你的微信 ID（只有你发的消息会被回复）
+  ilink_token: ""
+  owner_id: ""
 
-# Web API 配置
-web:
-  host: "0.0.0.0"
-  port: 8088
-
-# 主动提醒配置
-proactive:
-  # 各规则的冷却时间（小时）
-  mood_check_cooldown: 12
-  long_silence_cooldown: 48
-  screen_time_cooldown: 4
-  daily_checkin_cooldown: 20
-  # 屏幕时间阈值（秒）
-  screen_time_threshold: 14400  # 4小时
+# 飞书配置
+# 需要先在飞书开放平台创建自建应用：
+# 1. 访问 https://open.feishu.cn/
+# 2. 创建企业自建应用
+# 3. 开启"机器人"能力
+# 4. 配置事件订阅（接收消息的 webhook）
+# 5. 获取 App ID 和 App Secret
+feishu:
+  enabled: false
+  app_id: ""           # 飞书应用 App ID
+  app_secret: ""       # 飞书应用 App Secret
+  encrypt_key: ""      # 事件加密密钥（可选）
+  verification_token: ""  # 验证 token（可选）
+  owner_id: ""         # 你的飞书 open_id（用于接收主动消息）
+  webhook_port: 9000   # webhook 端口

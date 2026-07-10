@@ -5,7 +5,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, date
 from typing import Callable, Coroutine, Optional
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ class CronScheduler:
     def __init__(self):
         self._tasks = []
         self._running = False
+        self._last_run = {}  # name -> date, 防止同一天重复执行
 
     def schedule_daily(
         self,
@@ -53,23 +54,48 @@ class CronScheduler:
     async def start(self):
         """启动调度器"""
         self._running = True
+        self._interval_last_run = {}  # name -> timestamp, 记录上次执行时间
         logger.info("调度器已启动")
 
         while self._running:
             now = datetime.now()
+            now_ts = now.timestamp()
 
             for task in self._tasks:
                 if task["type"] == "daily":
                     target = time(task["hour"], task["minute"])
-                    if now.time().replace(second=0, microsecond=0) == target:
+                    now_time = now.time().replace(second=0, microsecond=0)
+
+                    if now_time == target:
+                        today = date.today()
+                        last = self._last_run.get(task["name"])
+
+                        if last == today:
+                            continue
+
                         try:
                             logger.info(f"执行定时任务: {task['name']}")
                             await task["coro_factory"]()
+                            self._last_run[task["name"]] = today
+                            logger.info(f"定时任务 {task['name']} 执行完成")
                         except Exception as e:
-                            logger.error(f"定时任务 {task['name']} 失败: {e}")
+                            logger.error(f"定时任务 {task['name']} 失败: {e}", exc_info=True)
+                            self._last_run[task["name"]] = today
 
-            # 每30秒检查一次
-            await asyncio.sleep(30)
+                elif task["type"] == "interval":
+                    interval = task.get("interval", 3600)
+                    last_ts = self._interval_last_run.get(task["name"], 0)
+                    if now_ts - last_ts >= interval:
+                        try:
+                            logger.info(f"执行间隔任务: {task['name']}")
+                            await task["coro_factory"]()
+                            self._interval_last_run[task["name"]] = now_ts
+                            logger.info(f"间隔任务 {task['name']} 执行完成")
+                        except Exception as e:
+                            logger.error(f"间隔任务 {task['name']} 失败: {e}", exc_info=True)
+                            self._interval_last_run[task["name"]] = now_ts
+
+            await asyncio.sleep(60)
 
     def stop(self):
         """停止调度器"""

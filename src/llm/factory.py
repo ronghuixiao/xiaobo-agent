@@ -2,6 +2,7 @@
 
 根据配置自动创建对应的 LLM 提供者。
 支持 Ollama 和 OpenAI 兼容 API。
+聊天用配置的 provider，embedding 固定用 Ollama（因为云端 API 不一定支持）。
 """
 
 from typing import Union
@@ -33,3 +34,12 @@ def create_llm_provider(config: LLMConfig) -> Union[OllamaProvider, OpenAIProvid
         )
     else:
         raise ValueError(f"不支持的 LLM 提供者: {config.provider}")
+
+
+def create_embedding_provider(config: LLMConfig) -> OllamaProvider:
+    """创建 embedding 提供者（始终用 Ollama，云端 API 通常不支持 embedding）"""
+    return OllamaProvider(
+        base_url=config.ollama.base_url,
+        model=config.ollama.model,
+        embedding_model=config.ollama.embedding_model,
+    )

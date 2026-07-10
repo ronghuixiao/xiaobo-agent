@@ -60,6 +60,7 @@ class ExtractedFact:
     content: str = ""    # 事实内容
     confidence: float = 1.0
     source_message_id: str = ""
+    event_time: Optional[str] = None  # 事件发生时间（绝对时间，如"2026-07-07晚上"）
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     is_active: bool = True  # 是否仍然有效
