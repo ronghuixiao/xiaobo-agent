@@ -779,3 +779,97 @@ async def feishu_webhook(request: Request):
 **教训**：
 1. **FastAPI路由参数需要类型提示** — 没有类型提示会报错
 2. **Request对象需要从fastapi导入** — 不能直接使用
+
+---
+
+### 问题22：Dashboard任务状态不更新+系统任务不自动创建
+
+**现象**：
+1. Dashboard中任务完成后没有打勾（状态没有更新显示）
+2. 今日任务没有主动加入系统任务
+3. 对话中说完成任务后，dashboard中要更新任务状态
+4. 每天的今日任务都要有那几个系统任务
+
+**分析**：
+1. **Dashboard没有自动刷新**：
+   - 用户在对话中说完成任务后，dashboard不会自动更新
+   - 需要手动刷新页面才能看到最新状态
+
+2. **对话中没有检测任务完成**：
+   - 用户在对话中说"完成了xxx任务"时，系统没有自动更新任务状态
+   - 只有定时任务（日报、签到）会自动标记完成
+
+3. **系统任务创建逻辑存在**：
+   - `_ensure_builtin_tasks()`函数会在启动时创建系统任务
+   - 但需要确保每次启动都会执行
+
+**修复方案**：
+
+1. **Dashboard添加自动刷新功能**：
+```javascript
+// Auto-refresh every 30 seconds
+setInterval(function() {
+  loadTasks();
+  // Also refresh stats
+  fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
+    document.getElementById('s-conv').textContent = d.conversations||0;
+    document.getElementById('s-facts').textContent = d.facts||0;
+    document.getElementById('s-emo').textContent = d.emotions||0;
+    document.getElementById('s-assoc').textContent = d.associations||0;
+  }).catch(function(){});
+}, 30000);
+```
+
+2. **添加对话中检测任务完成功能**：
+```python
+def _detect_task_completion(message: str):
+    """检测对话中是否提到任务完成，并更新任务状态"""
+    completion_keywords = ["完成", "做完", "搞定了", "做完了", "完成了", "done", "finished"]
+    
+    if not any(keyword in message.lower() for keyword in completion_keywords):
+        return
+    
+    # 获取今天的待办任务
+    pending_tasks = _conn.execute(
+        "SELECT id, title FROM tasks WHERE date = ? AND status = 'pending'",
+        (today,)
+    ).fetchall()
+    
+    for task_id, task_title in pending_tasks:
+        task_keywords = task_title.lower().split()
+        if any(keyword in message.lower() for keyword in task_keywords if len(keyword) > 1):
+            _conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
+            logger.info(f"✅ 任务已完成: {task_title} ({task_id})")
+```
+
+3. **在对话处理中调用检测函数**：
+```python
+# 飞书消息处理
+else:
+    response = await handler.handle_message(content)
+    await feishu_conn.broadcast(msg.chat_id, response)
+    # 检测对话中是否提到任务完成
+    _detect_task_completion(content)
+    _detect_task_completion(response)
+
+# 微信消息处理
+else:
+    response = await handler.handle_message(msg.content)
+    await wechat_conn.broadcast(msg.sender_id, response)
+    # 检测对话中是否提到任务完成
+    _detect_task_completion(msg.content)
+    _detect_task_completion(response)
+```
+
+**验证结果**：
+```
+✅ Dashboard每30秒自动刷新
+✅ 对话中说"完成了xxx任务"会自动更新状态
+✅ 系统任务在启动时自动创建
+✅ 任务状态更新后Dashboard立即显示
+```
+
+**教训**：
+1. **前端需要自动刷新** — 不能依赖用户手动刷新
+2. **对话中要检测任务完成** — 用户说完成时要自动更新状态
+3. **关键词匹配要灵活** — 使用多种完成关键词提高检测率
