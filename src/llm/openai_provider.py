@@ -65,6 +65,32 @@ class OpenAIProvider(LLMProvider):
             logger.error(f"OpenAI API 请求失败: {e}")
             raise
 
+    async def stream_chat(
+        self,
+        messages: List[ChatMessage],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncGenerator[str, None]:
+        """流式 chat completion 请求，逐token返回"""
+        temp = temperature if temperature is not None else self.default_temperature
+        tokens = max_tokens if max_tokens is not None else self.default_max_tokens
+
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                temperature=temp,
+                max_tokens=tokens,
+                stream=True,
+            )
+            
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            logger.error(f"OpenAI 流式请求失败: {e}")
+            raise
+
     async def embed(self, text: str) -> List[float]:
         """获取文本的向量嵌入"""
         try:

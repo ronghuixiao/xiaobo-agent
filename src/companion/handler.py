@@ -140,6 +140,80 @@ class ConversationHandler:
 
         return response.content
 
+    async def stream_handle_message(self, user_message: str):
+        """流式处理用户消息，逐token返回
+        
+        完整流程：
+        1. 保存用户消息
+        2. 检索相关记忆
+        3. 构建带记忆的系统提示
+        4. 调用 LLM 流式接口
+        5. 逐token返回
+        6. 最后保存完整回复并提取信息
+        """
+        if not self._current_session_id:
+            self.start_session()
+
+        # 1. 保存用户消息
+        user_msg = ConversationMessage(
+            session_id=self._current_session_id,
+            role="user",
+            content=user_message,
+            timestamp=datetime.now(),
+        )
+        await self.memory.save_message(user_msg)
+
+        # 2. 检索相关记忆
+        known_facts = await self._get_known_facts()
+        recent_context = await self._get_recent_context()
+
+        # 3. 构建系统提示
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            companion_name=self.settings.companion.name,
+            user_name=self.settings.companion.user_name,
+            known_facts=known_facts,
+            recent_context=recent_context,
+        )
+
+        # 4. 调用 LLM 流式接口
+        messages = [
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=user_message),
+        ]
+
+        full_response = []
+        async for chunk in self.llm.stream_chat(messages):
+            full_response.append(chunk)
+            yield chunk
+
+        # 5. 保存完整回复
+        response_content = "".join(full_response)
+        assistant_msg = ConversationMessage(
+            session_id=self._current_session_id,
+            role="assistant",
+            content=response_content,
+            timestamp=datetime.now(),
+        )
+        await self.memory.save_message(assistant_msg)
+
+        # 6. 提取信息（fire and forget，不阻塞回复）
+        try:
+            facts, emotion, topics = await self.extractor.extract(user_msg)
+            for fact in facts:
+                await self.memory.save_fact(fact)
+            if emotion:
+                await self.memory.save_emotion(emotion)
+            if topics:
+                from src.memory.base import AssociationIndex
+                for topic in topics:
+                    assoc = AssociationIndex(
+                        keyword=topic,
+                        message_ids=[user_msg.id],
+                    )
+                    await self.memory.save_association(assoc)
+        except Exception as e:
+            logger.warning(f"信息提取失败（不影响回复）: {e}")
+
     async def _get_known_facts(self) -> str:
         """获取已知事实，格式化为文本"""
         facts = await self.memory.get_facts(limit=50)

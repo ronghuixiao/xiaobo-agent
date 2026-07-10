@@ -1,12 +1,12 @@
 """LLM Provider 抽象基类
 
 所有 LLM 提供者必须实现这个接口。
-支持 chat completion 和 embedding 两种能力。
+支持 chat completion、streaming chat 和 embedding 三种能力。
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, AsyncGenerator
 
 
 @dataclass
@@ -38,6 +38,17 @@ class LLMProvider(ABC):
     ) -> ChatResponse:
         """发送对话请求"""
         ...
+
+    @abstractmethod
+    async def stream_chat(
+        self,
+        messages: List[ChatMessage],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncGenerator[str, None]:
+        """流式对话请求，逐token返回"""
+        ...
+        yield  # Make it a generator
 
     @abstractmethod
     async def embed(self, text: str) -> List[float]:

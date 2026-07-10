@@ -75,6 +75,39 @@ class OllamaProvider(LLMProvider):
             logger.error(f"Ollama chat 请求失败: {e}")
             raise
 
+    async def stream_chat(
+        self,
+        messages: List[ChatMessage],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ):
+        """流式 chat completion 请求到 Ollama"""
+        temp = temperature if temperature is not None else self.default_temperature
+        tokens = max_tokens if max_tokens is not None else self.default_max_tokens
+
+        payload = {
+            "model": self.model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "stream": True,
+            "options": {
+                "temperature": temp,
+                "num_predict": tokens,
+            },
+        }
+
+        try:
+            async with self._client.stream("POST", "/api/chat", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line:
+                        import json
+                        data = json.loads(line)
+                        if data.get("message", {}).get("content"):
+                            yield data["message"]["content"]
+        except httpx.HTTPError as e:
+            logger.error(f"Ollama 流式请求失败: {e}")
+            raise
+
     async def embed(self, text: str) -> List[float]:
         """获取文本的向量嵌入"""
         payload = {

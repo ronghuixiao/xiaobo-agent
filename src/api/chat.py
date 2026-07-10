@@ -362,6 +362,11 @@ function hideWelcome() {
   if (w) w.style.display = 'none';
 }
 
+// Format message content (handle line breaks)
+function formatMessage(content) {
+  return escapeHtml(content).replace(/\n/g, '<br>');
+}
+
 // Add message to chat
 function addMessage(role, content, time) {
   hideWelcome();
@@ -419,10 +424,28 @@ async function sendMessage() {
   autoResize(msgInput);
   
   addMessage('user', text);
-  showTyping();
+  
+  // 创建助手消息容器（用于流式输出）
+  const assistantDiv = document.createElement('div');
+  assistantDiv.className = 'message assistant';
+  assistantDiv.innerHTML = `
+    <div class="msg-avatar">🤖</div>
+    <div class="msg-content">
+      <div class="msg-bubble" id="streaming-bubble">
+        <div class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+  `;
+  chatArea.appendChild(assistantDiv);
+  scrollToBottom();
+  
+  const streamingBubble = document.getElementById('streaming-bubble');
+  let fullContent = '';
   
   try {
-    const resp = await fetch('/api/chat', {
+    const resp = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, session_id: sessionId })
@@ -430,15 +453,39 @@ async function sendMessage() {
     
     if (!resp.ok) throw new Error('请求失败: ' + resp.status);
     
-    const data = await resp.json();
-    sessionId = data.session_id;
-    localStorage.setItem('xiaobo_session_id', sessionId);
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
     
-    hideTyping();
-    addMessage('assistant', data.reply);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.type === 'session') {
+              sessionId = data.session_id;
+              localStorage.setItem('xiaobo_session_id', sessionId);
+            } else if (data.type === 'chunk') {
+              fullContent += data.content;
+              streamingBubble.innerHTML = formatMessage(fullContent);
+              scrollToBottom();
+            } else if (data.type === 'done') {
+              streamingBubble.removeAttribute('id');
+            }
+          } catch (e) {
+            // ignore parse errors
+          }
+        }
+      }
+    }
   } catch (err) {
-    hideTyping();
-    showToast('发送失败，请重试');
+    streamingBubble.innerHTML = '<span style="color: #ef4444;">发送失败，请重试</span>';
     console.error(err);
   } finally {
     isWaiting = false;
@@ -504,7 +551,7 @@ def create_chat_router() -> APIRouter:
 
     @router.post("/api/chat", response_model=ChatResponse)
     async def chat_send(req: ChatRequest):
-        """发送消息并获取回复"""
+        """发送消息并获取回复（非流式，兼容旧客户端）"""
         if not _handler:
             return {"error": "聊天模块未初始化"}, 500
 
@@ -519,6 +566,44 @@ def create_chat_router() -> APIRouter:
         return ChatResponse(
             reply=reply,
             session_id=_handler._current_session_id,
+        )
+
+    @router.post("/api/chat/stream")
+    async def chat_stream(req: ChatRequest):
+        """发送消息并获取流式回复（SSE）"""
+        from fastapi.responses import StreamingResponse
+        
+        if not _handler:
+            return {"error": "聊天模块未初始化"}, 500
+
+        # 使用传入的 session_id 或创建新的
+        if req.session_id:
+            _handler._current_session_id = req.session_id
+        else:
+            _handler.start_session()
+
+        session_id = _handler._current_session_id
+
+        async def event_generator():
+            """SSE 事件生成器"""
+            # 发送 session_id
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+            
+            # 流式生成回复
+            async for chunk in _handler.stream_handle_message(req.message):
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            
+            # 发送完成信号
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     @router.get("/api/chat/history")
