@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import List, Optional
+from typing import AsyncGenerator, List, Optional
 
 from openai import AsyncOpenAI
 
