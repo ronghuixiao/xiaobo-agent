@@ -234,17 +234,37 @@ class ConversationHandler:
         return "\n".join(lines)
 
     async def _get_recent_context(self) -> str:
-        """获取最近的对话上下文"""
+        """获取最近的对话上下文（带时间戳，跨会话）"""
+        # 获取所有会话的最近消息，而不仅仅是当前会话
         messages = await self.memory.get_messages(
-            session_id=self._current_session_id,
+            session_id=None,  # 不限会话，获取所有
             limit=self.settings.memory.max_context_messages,
         )
 
         if not messages:
             return "（这是新的对话）"
 
+        from datetime import datetime as _dt
+        now = _dt.now()
+        
         lines = []
         for m in messages[-20:]:  # 最多带20条
             role_name = self.settings.companion.user_name if m.role == "user" else self.settings.companion.name
-            lines.append(f"{role_name}: {m.content}")
+            
+            # 计算相对时间
+            msg_time = m.timestamp
+            time_diff = now - msg_time
+            hours_ago = time_diff.total_seconds() / 3600
+            
+            if hours_ago < 1:
+                time_str = "刚才"
+            elif hours_ago < 24:
+                time_str = f"{int(hours_ago)}小时前"
+            elif hours_ago < 48:
+                time_str = "昨天"
+            else:
+                days_ago = int(hours_ago / 24)
+                time_str = f"{days_ago}天前"
+            
+            lines.append(f"[{time_str}] {role_name}: {m.content}")
         return "\n".join(lines)
