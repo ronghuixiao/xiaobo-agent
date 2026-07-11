@@ -1467,3 +1467,51 @@ async def chat_send(req: ChatRequest):
 2. **跨会话获取** - 需要获取所有会话的消息，而不仅仅是当前会话
 3. **相对时间更自然** - 使用"刚才"、"X小时前"、"昨天"比绝对时间更自然
 4. **防止时间幻觉** - 明确的时间戳可以防止LLM猜测时间
+
+
+---
+
+## 问题28：Web服务反复崩溃导致Chat/Dashboard无法访问
+
+**日期**: 2026-07-10
+
+**现象**: 每次修改代码后重启daemon，Chat页面和Dashboard页面无法访问。进程在运行，但端口8088没有监听。
+
+**根因分析**:
+1. uvicorn以 `asyncio.create_task(web_server.serve())` 方式启动，是后台异步任务
+2. 如果uvicorn任务静默崩溃，daemon主进程（微信轮询循环）不会感知
+3. 日志显示 `"Web API: http://0.0.0.0:8088"` 但实际端口未绑定
+4. **没有健康检查、没有自动重启机制**——一旦崩溃就彻底死了
+5. 进程PID 2838873从Jul10 00:01开始运行，但端口始终未打开
+
+**修复方案**:
+1. 添加 `_monitor_web_server()` 监控函数：每10秒检查uvicorn task状态（`web_task.done()`），崩溃时自动重启
+2. 添加 `/api/health` 健康检查端点：返回 `{"status": "ok", "timestamp": ...}`，方便外部监控
+3. 使用 `web_server` 变量引用uvicorn.Server实例，便于监控
+
+**修复代码（main.py daemon_mode函数）**:
+```python
+async def _monitor_web_server():
+    nonlocal web_task, web_server
+    await asyncio.sleep(5)
+    while True:
+        if web_task and web_task.done():
+            # 记录错误并自动重启
+            try:
+                import uvicorn
+                config = uvicorn.Config(web_app, host="0.0.0.0", port=8088, log_level="warning")
+                web_server = uvicorn.Server(config)
+                web_task = asyncio.create_task(web_server.serve())
+                logger.info("🔄 Web 服务已重启")
+            except Exception as e:
+                logger.error(f"❌ Web 服务重启失败: {e}")
+        await asyncio.sleep(10)
+```
+
+**经验教训**:
+- `asyncio.create_task()` 创建的后台任务如果异常退出，不会自动传播到主进程
+- 长期运行的daemon必须有健康检查和自动恢复机制
+- 启动日志打了不代表服务真的可用，必须验证端口绑定
+- **每次重启daemon后必须用 `ss -tlnp | grep 8088` 和 `curl localhost:8088/` 验证服务存活**
+
+**Git Commit**: `8fada5f` — feat: Web服务自动崩溃重启机制 + 健康检查端点
