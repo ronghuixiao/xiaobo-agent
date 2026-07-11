@@ -517,6 +517,11 @@ async def daemon_mode(settings):
         async def root():
             return {"name": "小柏 Agent", "version": "0.3.0", "status": "running"}
 
+        @web_app.get("/api/health")
+        async def health_check():
+            """健康检查端点"""
+            return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
         @web_app.get("/api/stats")
         async def get_stats():
             return await memory.get_stats()
@@ -779,15 +784,45 @@ async def daemon_mode(settings):
 
     # 启动 Web 服务（后台）
     web_task = None
+    web_server = None
     if web_app:
         try:
             import uvicorn
             config = uvicorn.Config(web_app, host="0.0.0.0", port=8088, log_level="warning")
-            server = uvicorn.Server(config)
-            web_task = asyncio.create_task(server.serve())
+            web_server = uvicorn.Server(config)
+            web_task = asyncio.create_task(web_server.serve())
             logger.info(f"   Web API: http://0.0.0.0:8088")
         except Exception as e:
             logger.warning(f"Web 服务启动失败: {e}")
+
+    async def _monitor_web_server():
+        """监控 Web 服务，崩溃时自动重启"""
+        nonlocal web_task, web_server
+        await asyncio.sleep(5)  # 等待首次启动
+        while True:
+            if web_task and web_task.done():
+                try:
+                    exc = web_task.exception()
+                    logger.error(f"❌ Web 服务已崩溃: {exc}")
+                except asyncio.CancelledError:
+                    logger.error("❌ Web 服务被取消")
+                except Exception:
+                    logger.error("❌ Web 服务异常退出（原因未知）")
+                
+                # 尝试重启
+                try:
+                    import uvicorn
+                    config = uvicorn.Config(web_app, host="0.0.0.0", port=8088, log_level="warning")
+                    web_server = uvicorn.Server(config)
+                    web_task = asyncio.create_task(web_server.serve())
+                    logger.info("🔄 Web 服务已重启")
+                except Exception as e:
+                    logger.error(f"❌ Web 服务重启失败: {e}")
+            
+            await asyncio.sleep(10)  # 每10秒检查一次
+
+    if web_app:
+        asyncio.create_task(_monitor_web_server())
 
     # 启动定时调度
     scheduler_task = asyncio.create_task(scheduler.start())
