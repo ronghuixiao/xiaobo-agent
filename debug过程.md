@@ -1275,3 +1275,107 @@ async def chat_send(req: ChatRequest):
 2. **模块化便于复用** - 提取独立模块后，多个端点都能使用
 3. **日志很重要** - 添加详细日志后能快速定位问题
 4. **测试要全面** - 需要测试所有入口（Chat、飞书、微信）的功能
+
+---
+
+### 问题27：用户重新提供任务清单时，已完成的任务未重置
+
+**现象**：
+- 用户说"今日任务：JUC；JVM；实验；小柏agent完善；取快递"
+- 系统看到"实验"之前已经标记为done，所以LLM认为它已经完成了
+- LLM回复说"实验已完成"，但实际上用户是重新提供今天的任务清单
+
+**根因分析**：
+1. **任务列表检测只检查pending状态** - `_detect_task_list` 只检查 `status = 'pending'` 的任务，不会重置已完成的任务
+2. **LLM系统提示没有任务管理规则** - LLM看到历史上下文中有"实验已完成"的信息，就假设任务已经完成
+
+**修复方案**：
+
+1. **修改任务列表检测逻辑**（main.py `_detect_task_list`）
+   ```python
+   # 修改前：只检查pending状态的任务
+   existing = _conn.execute(
+       "SELECT title FROM tasks WHERE date = ? AND type = 'user' AND status = 'pending'",
+       (today,)
+   ).fetchall()
+   
+   # 修改后：检查所有用户任务，包括已完成的
+   existing = _conn.execute(
+       "SELECT id, title, status FROM tasks WHERE date = ? AND type = 'user'",
+       (today,)
+   ).fetchall()
+   existing_map = {row[1]: (row[0], row[2]) for row in existing}  # title -> (id, status)
+   
+   # 如果任务已完成但用户重新提供清单，重置为pending
+   if current_status == 'done':
+       _conn.execute(
+           "UPDATE tasks SET status = 'pending' WHERE id = ?",
+           (task_id,)
+       )
+       logger.info(f"🔄 重置任务: {task_title} (done → pending)")
+   ```
+
+2. **在系统提示中添加任务管理规则**（handler.py `SYSTEM_PROMPT_TEMPLATE`）
+   ```
+   ## 任务管理规则
+   - 当用户说"今日任务：A；B；C"时，表示用户在**重新列举今天要做的任务清单**
+   - **不要假设这些任务已经完成**，即使之前有同名的任务被标记为done
+   - 用户重新提供清单时，这些任务应该被视为**今天要做的新任务**
+   - 只有当用户明确说"做完了"、"搞定了"、"完成了"等完成含义时，才认为任务完成
+   - 回复时应该确认用户列出的任务清单，并鼓励用户开始做
+   ```
+
+3. **在API端点中添加任务列表检测**（src/api/chat.py）
+   ```python
+   # 在 /api/chat 端点中添加
+   _detect_task_list(req.message)
+   ```
+
+4. **注入_detect_task_list函数到API模块**（main.py）
+   ```python
+   # 在定义_detect_task_list之后重新初始化聊天API
+   init_chat(handler, memory, detect_task_list=_detect_task_list)
+   ```
+
+**修改的文件**：
+- `main.py` - 修改_detect_task_list逻辑，添加任务重置功能，注入函数到API模块
+- `src/companion/handler.py` - 在系统提示中添加任务管理规则
+- `src/api/chat.py` - 添加_detect_task_list调用，修改init_chat函数签名
+
+**验证结果**：
+```
+✅ 语法检查通过
+✅ 服务正常启动
+✅ 用户说"今日任务：A；B；C" → 任务正确创建
+✅ 用户说"实验做完了" → 任务自动标记为done
+✅ 用户重新说"今日任务：A；B；C" → 已完成的任务重置为pending
+✅ LLM不再假设任务已完成
+```
+
+**技术细节**：
+1. **任务状态重置流程**：
+   ```
+   用户说"今日任务：JUC；JVM；实验"
+       ↓
+   _detect_task_list() 检测到任务列表
+       ↓
+   查询今天的用户任务（包括done状态）
+       ↓
+   遍历任务列表：
+   - 如果任务已存在且为pending → 跳过
+   - 如果任务已存在且为done → 重置为pending
+   - 如果是新任务 → 添加为pending
+       ↓
+   更新数据库
+   ```
+
+2. **系统提示规则**：
+   - 明确告诉LLM：用户重新提供清单时，不要假设任务已完成
+   - 只有用户明确说"做完了"等完成含义时，才认为任务完成
+   - 回复时应该确认任务清单，鼓励用户开始做
+
+**教训**：
+1. **用户意图要理解准确** - 用户重新提供清单可能是想重置任务，而不是查看进度
+2. **系统提示很重要** - 明确的规则可以防止LLM做出错误假设
+3. **功能要完整** - API端点也需要调用任务检测，不能只在飞书端调用
+4. **函数注入要正确** - 需要在定义函数后重新初始化，注入到API模块
