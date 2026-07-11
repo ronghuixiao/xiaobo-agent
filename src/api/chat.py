@@ -33,13 +33,15 @@ class ChatResponse(BaseModel):
 # 全局引用（由 main.py 注入）
 _handler = None
 _memory = None
+_detect_task_list = None
 
 
-def init_chat(handler, memory):
+def init_chat(handler, memory, detect_task_list=None):
     """初始化聊天模块的依赖引用"""
-    global _handler, _memory
+    global _handler, _memory, _detect_task_list
     _handler = handler
     _memory = memory
+    _detect_task_list = detect_task_list
 
 
 CHAT_HTML = """<!DOCTYPE html>
@@ -563,9 +565,10 @@ def create_chat_router() -> APIRouter:
 
         reply = await _handler.handle_message(req.message)
         
-        # 检测任务完成
-        from src.utils.task_detector import detect_task_completion_sync
+        # 检测任务列表和任务完成
         import logging
+        _detect_task_list(req.message)
+        from src.utils.task_detector import detect_task_completion_sync
         detect_task_completion_sync(req.message, _handler.llm, logging.getLogger(__name__))
         detect_task_completion_sync(reply, _handler.llm, logging.getLogger(__name__))
         

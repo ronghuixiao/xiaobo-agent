@@ -195,6 +195,11 @@ async def daemon_mode(settings):
         - 今日任务：A；B；C
         - 任务清单：A、B、C
         - 今天要做：A, B, C
+        
+        行为：
+        - 如果任务已存在且状态为 pending，跳过
+        - 如果任务已存在但状态为 done，重置为 pending（用户重新提供清单时）
+        - 如果是新任务，添加为 pending
         """
         import sqlite3 as _sqlite3
         from datetime import datetime as _dt
@@ -229,17 +234,32 @@ async def daemon_mode(settings):
             _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
             _conn = _sqlite3.connect(_db, timeout=10)
             
-            # 获取今天的待办任务（避免重复）
+            # 获取今天的所有用户任务（包括已完成的）
             existing = _conn.execute(
-                "SELECT title FROM tasks WHERE date = ? AND type = 'user' AND status = 'pending'",
+                "SELECT id, title, status FROM tasks WHERE date = ? AND type = 'user'",
                 (today,)
             ).fetchall()
-            existing_titles = {row[0] for row in existing}
+            existing_map = {row[1]: (row[0], row[2]) for row in existing}  # title -> (id, status)
             
-            # 只添加不存在的任务
+            # 处理任务列表
             new_count = 0
+            reset_count = 0
             for task_title in tasks:
-                if task_title not in existing_titles:
+                if task_title in existing_map:
+                    task_id, current_status = existing_map[task_title]
+                    if current_status == 'done':
+                        # 任务已完成，但用户重新提供清单，重置为 pending
+                        _conn.execute(
+                            "UPDATE tasks SET status = 'pending' WHERE id = ?",
+                            (task_id,)
+                        )
+                        reset_count += 1
+                        logger.info(f"🔄 重置任务: {task_title} (done → pending)")
+                    else:
+                        # 任务已存在且为 pending，跳过
+                        pass
+                else:
+                    # 新任务，添加
                     task_id = f"user-{today}-{hash(task_title) % 1000000:06d}"
                     _conn.execute(
                         "INSERT INTO tasks (id, title, date, time, status, type, created_at) VALUES (?, ?, ?, '', 'pending', 'user', ?)",
@@ -248,9 +268,14 @@ async def daemon_mode(settings):
                     new_count += 1
                     logger.info(f"📝 新增任务: {task_title}")
             
-            if new_count > 0:
+            if new_count > 0 or reset_count > 0:
                 _conn.commit()
-                logger.info(f"✅ 今日任务已保存: 共{new_count}个新任务")
+                parts = []
+                if new_count > 0:
+                    parts.append(f"{new_count}个新任务")
+                if reset_count > 0:
+                    parts.append(f"{reset_count}个重置")
+                logger.info(f"✅ 今日任务已更新: {', '.join(parts)}")
             
             _conn.close()
         except Exception as e:
@@ -350,6 +375,10 @@ async def daemon_mode(settings):
         # 在新线程中运行
         thread = threading.Thread(target=_run_async, daemon=True)
         thread.start()
+    
+    # 重新初始化聊天 API，注入 _detect_task_list 函数
+    init_chat(handler, memory, detect_task_list=_detect_task_list)
+    
     # send_to_user 在 wechat_conn/feishu_conn 定义之后再创建（见下方）
 
     # 每日 22:00 日报推送
