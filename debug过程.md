@@ -1515,3 +1515,53 @@ async def _monitor_web_server():
 - **每次重启daemon后必须用 `ss -tlnp | grep 8088` 和 `curl localhost:8088/` 验证服务存活**
 
 **Git Commit**: `8fada5f` — feat: Web服务自动崩溃重启机制 + 健康检查端点
+
+
+---
+
+## 问题29：LLM看到旧任务状态误报"已完成"
+
+**日期**: 2026-07-11
+
+**现象**: 用户说"今日任务：JUC；JVM；实验；小柏agent完善；取快递"，LLM回复"✅ 实验（已完成）✅ 小柏agent完善（已完成）"，但这些任务其实是今天新列的。
+
+**根因分析**:
+1. `_detect_task_list()` 在 `handle_message()` **之后**调用
+2. LLM看到数据库中的旧任务状态（同名任务在之前日期已标记为done）
+3. LLM根据任务状态回复"已完成"
+4. 然后任务列表检测才运行，此时为时已晚
+
+**时序问题**:
+```
+错误时序:
+1. handle_message() → LLM看到"实验=done" → 回复"已完成"
+2. _detect_task_list() → 重置任务为pending
+
+正确时序:
+1. _detect_task_list() → 重置任务为pending
+2. handle_message() → LLM看到"实验=pending" → 回复正确
+```
+
+**修复方案**:
+将所有入口的 `_detect_task_list()` 调用提前到 `handle_message()` 之前：
+- `src/api/chat.py` `/api/chat` 端点
+- `src/api/chat.py` `/api/chat/stream` 端点
+- `main.py` 微信消息处理
+- `main.py` 飞书消息处理
+
+**修复代码**:
+```python
+# 修复前
+reply = await handler.handle_message(msg.content)
+_detect_task_list(msg.content)  # 太晚了！
+
+# 修复后
+_detect_task_list(msg.content)  # 先更新任务状态
+reply = await handler.handle_message(msg.content)  # LLM看到正确状态
+```
+
+**Git Commit**: `cb57e02` — fix: 任务列表检测提前到LLM回复前
+
+**经验教训**:
+- 任务状态变更必须在LLM调用前完成，否则LLM会基于旧状态回复
+- 时序问题在异步系统中容易被忽视
