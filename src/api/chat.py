@@ -563,11 +563,13 @@ def create_chat_router() -> APIRouter:
         else:
             _handler.start_session()
 
+        # 先检测任务列表（在LLM回复前，确保任务状态已更新）
+        _detect_task_list(req.message)
+        
         reply = await _handler.handle_message(req.message)
         
-        # 检测任务列表和任务完成
+        # 检测任务完成
         import logging
-        _detect_task_list(req.message)
         from src.utils.task_detector import detect_task_completion_sync
         detect_task_completion_sync(req.message, _handler.llm, logging.getLogger(__name__))
         detect_task_completion_sync(reply, _handler.llm, logging.getLogger(__name__))
@@ -593,6 +595,9 @@ def create_chat_router() -> APIRouter:
 
         session_id = _handler._current_session_id
         full_response = ""
+        
+        # 先检测任务列表（在LLM回复前，确保任务状态已更新）
+        _detect_task_list(req.message)
         
         async def event_generator():
             """SSE 事件生成器"""

@@ -760,10 +760,12 @@ async def daemon_mode(settings):
                 stats = await memory.get_stats()
                 await feishu_conn.broadcast(msg.chat_id, f"📊 记忆统计: {stats}")
             else:
+                # 先检测任务列表（在LLM回复前，确保任务状态已更新）
+                _detect_task_list(content)
+                
                 response = await handler.handle_message(content)
                 await feishu_conn.broadcast(msg.chat_id, response)
-                # 检测任务列表和任务完成
-                _detect_task_list(content)
+                # 检测任务完成
                 _detect_task_completion(content)
                 _detect_task_completion(response)
             
@@ -857,10 +859,12 @@ async def daemon_mode(settings):
                         stats = await memory.get_stats()
                         await wechat_conn.broadcast(msg.sender_id, f"📊 记忆统计: {stats}")
                     else:
+                        # 先检测任务列表（在LLM回复前，确保任务状态已更新）
+                        _detect_task_list(msg.content)
+                        
                         response = await handler.handle_message(msg.content)
                         await wechat_conn.broadcast(msg.sender_id, response)
-                        # 检测任务列表和任务完成
-                        _detect_task_list(msg.content)
+                        # 检测任务完成
                         _detect_task_completion(msg.content)
                         _detect_task_completion(response)
 
