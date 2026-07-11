@@ -1379,3 +1379,91 @@ async def chat_send(req: ChatRequest):
 2. **系统提示很重要** - 明确的规则可以防止LLM做出错误假设
 3. **功能要完整** - API端点也需要调用任务检测，不能只在飞书端调用
 4. **函数注入要正确** - 需要在定义函数后重新初始化，注入到API模块
+
+---
+
+### 问题28：记忆没有时间概念 - LLM把"昨晚"当成"刚说的"
+
+**现象**：
+- 用户说"昨晚我说线程池写完就不想学了"
+- 小柏回复说"你刚说线程池写完就不想学了"
+- 实际上用户是昨晚说的，现在已经是第二天中午了
+- LLM没有正确识别时间信息
+
+**根因分析**：
+1. **对话上下文没有时间戳** - `_get_recent_context` 函数只返回对话内容，没有包含时间信息
+2. **只获取当前会话的消息** - 函数使用 `session_id` 过滤，只返回当前会话的消息
+3. **LLM无法判断时间** - 没有时间信息，LLM无法判断对话是什么时候发生的
+
+**修复方案**：
+
+1. **修改对话上下文获取逻辑**（handler.py `_get_recent_context`）
+   ```python
+   # 修改前：只获取当前会话的消息
+   messages = await self.memory.get_messages(
+       session_id=self._current_session_id,
+       limit=self.settings.memory.max_context_messages,
+   )
+   
+   # 修改后：获取所有会话的最近消息（跨会话）
+   messages = await self.memory.get_messages(
+       session_id=None,  # 不限会话，获取所有
+       limit=self.settings.memory.max_context_messages,
+   )
+   ```
+
+2. **为每条消息添加时间戳**
+   ```python
+   from datetime import datetime as _dt
+   now = _dt.now()
+   
+   for m in messages[-20:]:
+       msg_time = m.timestamp
+       time_diff = now - msg_time
+       hours_ago = time_diff.total_seconds() / 3600
+       
+       if hours_ago < 1:
+           time_str = "刚才"
+       elif hours_ago < 24:
+           time_str = f"{int(hours_ago)}小时前"
+       elif hours_ago < 48:
+           time_str = "昨天"
+       else:
+           days_ago = int(hours_ago / 24)
+           time_str = f"{days_ago}天前"
+       
+       lines.append(f"[{time_str}] {role_name}: {m.content}")
+   ```
+
+**修改的文件**：
+- `src/companion/handler.py` - 修改 `_get_recent_context` 函数，添加时间戳，跨会话获取
+
+**验证结果**：
+```
+✅ 语法检查通过
+✅ 服务正常启动
+✅ 用户说"昨晚我说线程池写完就不想学了"
+   → 小柏回复"昨晚说完之后，今天又有些新的想法？"
+   → 正确识别了时间 ✅
+```
+
+**技术细节**：
+1. **时间戳格式**：
+   ```
+   [刚才] 荣慧: 实验做完了
+   [2小时前] 荣慧: 学不完了不想学了
+   [昨天] 荣慧: 线程池写完就不想学了
+   [3天前] 荣慧: 去了四川
+   ```
+
+2. **LLM如何使用时间信息**：
+   - LLM看到 `[昨天] 荣慧: 线程池写完就不想学了`
+   - LLM知道这是昨天的对话
+   - 当用户说"昨晚我说线程池写完就不想学了"时
+   - LLM能正确理解用户指的是昨天的对话
+
+**教训**：
+1. **时间信息很重要** - 没有时间信息，LLM无法正确理解上下文
+2. **跨会话获取** - 需要获取所有会话的消息，而不仅仅是当前会话
+3. **相对时间更自然** - 使用"刚才"、"X小时前"、"昨天"比绝对时间更自然
+4. **防止时间幻觉** - 明确的时间戳可以防止LLM猜测时间
