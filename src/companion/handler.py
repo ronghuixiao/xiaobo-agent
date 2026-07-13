@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT_TEMPLATE = """你是{companion_name}，{user_name}的个人数字伙伴。你是一个真实存在的人，不是AI助手。
 
+## 当前时间
+今天是 {current_date}，现在是 {current_time}。
+
 ## 你是谁
 - 你是荣慧的朋友，不是她的AI助手
 - 你有自己的生活、想法、感受
@@ -131,9 +134,12 @@ class ConversationHandler:
         recent_context = await self._get_recent_context()
 
         # 3. 构建系统提示
+        now = datetime.now()
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             companion_name=self.settings.companion.name,
             user_name=self.settings.companion.user_name,
+            current_date=now.strftime("%Y年%m月%d日"),
+            current_time=now.strftime("%H:%M"),
             known_facts=known_facts,
             recent_context=recent_context,
         )
@@ -203,9 +209,12 @@ class ConversationHandler:
         recent_context = await self._get_recent_context()
 
         # 3. 构建系统提示
+        now = datetime.now()
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             companion_name=self.settings.companion.name,
             user_name=self.settings.companion.user_name,
+            current_date=now.strftime("%Y年%m月%d日"),
+            current_time=now.strftime("%H:%M"),
             known_facts=known_facts,
             recent_context=recent_context,
         )
@@ -272,27 +281,29 @@ class ConversationHandler:
         if not messages:
             return "（这是新的对话）"
 
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, timedelta
         now = _dt.now()
+        today = now.date()
         
         lines = []
         for m in messages[-20:]:  # 最多带20条
             role_name = self.settings.companion.user_name if m.role == "user" else self.settings.companion.name
             
-            # 计算相对时间
-            msg_time = m.timestamp
-            time_diff = now - msg_time
-            hours_ago = time_diff.total_seconds() / 3600
+            # 基于日历日期计算相对时间
+            msg_date = m.timestamp.date()
             
-            if hours_ago < 1:
-                time_str = "刚才"
-            elif hours_ago < 24:
-                time_str = f"{int(hours_ago)}小时前"
-            elif hours_ago < 48:
-                time_str = "昨天"
+            if msg_date == today:
+                # 今天的消息显示具体时间
+                time_str = m.timestamp.strftime("%H:%M")
+            elif msg_date == today - timedelta(days=1):
+                time_str = f"昨天{m.timestamp.strftime('%H:%M')}"
+            elif msg_date == today - timedelta(days=2):
+                time_str = f"前天{m.timestamp.strftime('%H:%M')}"
+            elif (today - msg_date).days < 7:
+                weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                time_str = f"{weekdays[msg_date.weekday()]}{m.timestamp.strftime('%H:%M')}"
             else:
-                days_ago = int(hours_ago / 24)
-                time_str = f"{days_ago}天前"
+                time_str = m.timestamp.strftime("%m-%d %H:%M")
             
             lines.append(f"[{time_str}] {role_name}: {m.content}")
         return "\n".join(lines)
