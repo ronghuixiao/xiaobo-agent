@@ -377,7 +377,7 @@ function addMessage(role, content, time) {
   div.className = 'message ' + role;
   
   const avatar = role === 'user' ? '👤' : '🌟';
-  const timeStr = time || new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+  const timeStr = time || new Date().toLocaleString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
   
   div.innerHTML = `
     <div class="msg-avatar">${avatar}</div>
@@ -506,7 +506,7 @@ async function loadHistory() {
     if (data.messages && data.messages.length > 0) {
       hideWelcome();
       for (const msg of data.messages) {
-        const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+        const time = new Date(msg.timestamp).toLocaleString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
         addMessage(msg.role, msg.content, time);
       }
     }
