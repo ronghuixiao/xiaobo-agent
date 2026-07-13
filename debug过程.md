@@ -1676,3 +1676,17 @@ if hours_ago < 48:
 - **不要替LLM算** — 直接给原始数据（完整日期），让LLM自己判断
 - **系统提示要注入当前时间** — 否则LLM不知道"今天"是哪天
 - **简单方案往往更好** — 相对日期逻辑复杂且容易出错，绝对日期简单且准确
+
+**补充修复**：Chat页面前端时间显示
+
+之前的修复只改了后端给LLM的上下文格式，但Chat页面的前端JavaScript也用 `toLocaleTimeString` 只显示时间（HH:MM），用户在页面上看不到日期。
+
+**修改文件**：`src/api/chat.py`（前端JavaScript部分）
+
+两处修改：
+1. `addMessage()` 函数的时间回退：`toLocaleTimeString` → `toLocaleString`
+2. `loadHistory()` 函数的时间格式：`toLocaleTimeString` → `toLocaleString`
+
+**修复后效果**：`2026/07/13 08:24` 格式，同时显示日期和时间
+
+**Git Commit**: `8aae76b`
