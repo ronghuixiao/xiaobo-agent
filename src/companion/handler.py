@@ -281,29 +281,12 @@ class ConversationHandler:
         if not messages:
             return "（这是新的对话）"
 
-        from datetime import datetime as _dt, timedelta
-        now = _dt.now()
-        today = now.date()
-        
         lines = []
         for m in messages[-20:]:  # 最多带20条
             role_name = self.settings.companion.user_name if m.role == "user" else self.settings.companion.name
             
-            # 基于日历日期计算相对时间
-            msg_date = m.timestamp.date()
-            
-            if msg_date == today:
-                # 今天的消息显示具体时间
-                time_str = m.timestamp.strftime("%H:%M")
-            elif msg_date == today - timedelta(days=1):
-                time_str = f"昨天{m.timestamp.strftime('%H:%M')}"
-            elif msg_date == today - timedelta(days=2):
-                time_str = f"前天{m.timestamp.strftime('%H:%M')}"
-            elif (today - msg_date).days < 7:
-                weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-                time_str = f"{weekdays[msg_date.weekday()]}{m.timestamp.strftime('%H:%M')}"
-            else:
-                time_str = m.timestamp.strftime("%m-%d %H:%M")
+            # 直接显示完整日期时间，让LLM自己判断相对关系
+            time_str = m.timestamp.strftime("%Y-%m-%d %H:%M")
             
             lines.append(f"[{time_str}] {role_name}: {m.content}")
         return "\n".join(lines)
