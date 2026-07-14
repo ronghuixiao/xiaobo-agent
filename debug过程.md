@@ -1690,3 +1690,101 @@ if hours_ago < 48:
 **修复后效果**：`2026/07/13 08:24` 格式，同时显示日期和时间
 
 **Git Commit**: `8aae76b`
+
+---
+
+### 问题28：Daemon连续运行跨天后，系统任务不自动创建
+
+**现象**：
+- Dashboard今日任务区域只显示用户任务，不显示系统任务（早间签到、主动关怀检查、每日日报生成）
+- 之前每天都有系统任务，今天（7月14日）突然没有了
+
+**根因分析**：
+
+1. **`_ensure_builtin_tasks()` 只在 daemon 启动时执行一次**
+   - 该函数通过 `loop.create_task()` 在 `daemon_mode()` 启动时调用
+   - 只检查当天是否已有 builtin 任务，没有就创建
+   - daemon 进程从 Jul 13 09:10 启动后一直运行，没有重启
+
+2. **跨天后没有机制创建新一天的系统任务**
+   - crontab 里没有定时重启 daemon 的任务
+   - 调度器（CronScheduler）的主循环只负责执行定时任务，不检测日期变化
+   - `_ensure_builtin_tasks()` 也不会被再次调用
+
+3. **验证数据**：
+   ```
+   # Jul 13 的系统任务（正常）
+   today-2026-07-13-0800 | 早间签到 | done | builtin
+   today-2026-07-13-0900 | 主动关怀检查 | done | builtin
+   today-2026-07-13-2200 | 每日日报生成 | done | builtin
+
+   # Jul 14 的系统任务（缺失）
+   ← 0 条 builtin 任务，只有 9 条 user 任务
+   ```
+
+**修复方案**：
+
+1. **在 CronScheduler 中添加跨天检测和回调机制**（`src/companion/scheduler.py`）
+   - 新增 `_current_date` 成员变量，跟踪当前日期
+   - 新增 `_on_date_change_callbacks` 回调列表
+   - 新增 `on_date_change(callback)` 方法，用于注册跨天回调
+   - 在 `start()` 的主循环中检测日期变化：当 `date.today() != self._current_date` 时，执行所有回调并重置 `_last_run`
+
+   ```python
+   class CronScheduler:
+       def __init__(self):
+           self._tasks = []
+           self._running = False
+           self._last_run = {}
+           self._on_date_change_callbacks = []
+           self._current_date = date.today()
+
+       def on_date_change(self, callback):
+           """注册跨天回调"""
+           self._on_date_change_callbacks.append(callback)
+
+       async def start(self):
+           self._running = True
+           self._interval_last_run = {}
+           while self._running:
+               now = datetime.now()
+               # 跨天检测
+               today = date.today()
+               if today != self._current_date:
+                   old_date = self._current_date
+                   self._current_date = today
+                   for cb in self._on_date_change_callbacks:
+                       await cb()
+                   self._last_run.clear()  # 允许新一天执行每日任务
+               # ... 原有的任务执行逻辑 ...
+               await asyncio.sleep(60)
+   ```
+
+2. **在 main.py 中注册跨天回调**
+   ```python
+   # 启动时立即创建今天的内置任务（原有逻辑）
+   _loop.create_task(_ensure_builtin_tasks())
+
+   # 注册跨天回调：每天0点过后自动创建新一天的内置任务（新增）
+   scheduler.on_date_change(_ensure_builtin_tasks)
+   ```
+
+**修改的文件**：
+- `src/companion/scheduler.py` — 添加 `_current_date`、`_on_date_change_callbacks`、`on_date_change()` 方法、跨天检测逻辑
+- `main.py` — 注册 `_ensure_builtin_tasks` 到 `scheduler.on_date_change()`
+
+**验证结果**：
+```
+✅ 语法检查通过（scheduler.py + main.py）
+✅ 跨天回调机制实现
+✅ 启动时仍会创建当天任务
+✅ 日期变化时自动创建新一天的系统任务
+✅ 每日任务执行记录在跨天后自动重置
+```
+
+**Git Commit**: `a486d31`
+
+**教训**：
+1. **长时间运行的进程要考虑跨天问题** — daemon 不是每天重启的，跨天逻辑不能依赖启动时执行
+2. **日期变化检测是通用需求** — 调度器应该提供跨天回调机制，让业务逻辑注册
+3. **调试时先查数据库** — 直接查 tasks 表就能发现 builtin 任务缺失，比看日志更直接
