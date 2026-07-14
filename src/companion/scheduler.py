@@ -18,6 +18,12 @@ class CronScheduler:
         self._tasks = []
         self._running = False
         self._last_run = {}  # name -> date, 防止同一天重复执行
+        self._on_date_change_callbacks = []  # 跨天回调列表
+        self._current_date = date.today()  # 当前日期，用于检测跨天
+
+    def on_date_change(self, callback):
+        """注册跨天回调，当日期变化时自动执行"""
+        self._on_date_change_callbacks.append(callback)
 
     def schedule_daily(
         self,
@@ -60,6 +66,21 @@ class CronScheduler:
         while self._running:
             now = datetime.now()
             now_ts = now.timestamp()
+
+            # 跨天检测：当日期变化时，触发回调并重置每日任务的执行记录
+            today = date.today()
+            if today != self._current_date:
+                old_date = self._current_date
+                self._current_date = today
+                logger.info(f"📅 日期变化: {old_date} → {today}")
+                # 执行跨天回调
+                for cb in self._on_date_change_callbacks:
+                    try:
+                        await cb()
+                    except Exception as e:
+                        logger.error(f"跨天回调执行失败: {e}", exc_info=True)
+                # 清除每日任务的执行记录，允许新一天执行
+                self._last_run.clear()
 
             for task in self._tasks:
                 if task["type"] == "daily":

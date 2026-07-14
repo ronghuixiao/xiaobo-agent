@@ -468,6 +468,7 @@ async def daemon_mode(settings):
 
     # 自动创建今日内置任务
     async def _ensure_builtin_tasks():
+        """创建当天的内置系统任务（早间签到、主动关怀检查、每日日报生成）"""
         import sqlite3 as _sqlite3
         from datetime import datetime as _dt
         import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
@@ -484,14 +485,18 @@ async def daemon_mode(settings):
                 _conn.execute("INSERT OR IGNORE INTO tasks (id, title, time, date, status, type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (*t, _dt.now().isoformat()))
             _conn.commit()
-            logger.info(f"Created {len(builtin_tasks)} builtin tasks for today")
+            logger.info(f"✅ Created {len(builtin_tasks)} builtin tasks for today")
         _conn.close()
 
+    # 启动时立即创建今天的内置任务
     try:
         _loop = asyncio.get_event_loop()
         _loop.create_task(_ensure_builtin_tasks())
     except Exception:
         pass
+
+    # 注册跨天回调：每天0点过后自动创建新一天的内置任务
+    scheduler.on_date_change(_ensure_builtin_tasks)
 
     # === Web API 服务 ===
     web_app = None
