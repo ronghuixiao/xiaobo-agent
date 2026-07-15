@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS associations (
     last_updated TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    type TEXT DEFAULT 'user',
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_conv_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conv_timestamp ON conversations(timestamp);
 CREATE INDEX IF NOT EXISTS idx_conv_role ON conversations(role);
@@ -393,8 +403,122 @@ class MemoryDatabase:
     async def get_stats(self) -> Dict[str, Any]:
         """获取记忆统计"""
         stats = {}
-        for table in ["conversations", "facts", "emotions", "associations"]:
+        for table in ["conversations", "facts", "emotions", "associations", "tasks"]:
             cursor = await self._db.execute(f"SELECT COUNT(*) as cnt FROM {table}")
             row = await cursor.fetchone()
             stats[table] = row["cnt"]
         return stats
+
+    # ---- Layer 4: 任务管理 ----
+
+    async def save_task(
+        self,
+        title: str,
+        date_str: str,
+        time_str: str = "",
+        task_type: str = "user",
+        task_id: Optional[str] = None,
+        status: str = "pending",
+    ) -> str:
+        """保存任务，返回任务 ID"""
+        import uuid
+        if task_id is None:
+            task_id = f"task-{str(uuid.uuid4())[:8]}"
+        await self._db.execute(
+            """INSERT OR REPLACE INTO tasks
+               (id, title, date, time, status, type, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (task_id, title, date_str, time_str, status, task_type, datetime.now().isoformat()),
+        )
+        await self._db.commit()
+        return task_id
+
+    async def create_task(
+        self,
+        title: str,
+        date_str: str = "",
+        time_str: str = "",
+        task_type: str = "user",
+    ) -> str:
+        """创建任务（自动生成 ID）"""
+        if not date_str:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+        import uuid
+        task_id = f"task-{str(uuid.uuid4())[:8]}"
+        return await self.save_task(
+            title=title,
+            date_str=date_str,
+            time_str=time_str,
+            task_type=task_type,
+            task_id=task_id,
+        )
+
+    async def get_tasks_for_date(
+        self,
+        date_str: str,
+        task_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """获取指定日期的任务"""
+        if task_type:
+            cursor = await self._db.execute(
+                "SELECT * FROM tasks WHERE date = ? AND type = ? ORDER BY time",
+                (date_str, task_type),
+            )
+        else:
+            cursor = await self._db.execute(
+                "SELECT * FROM tasks WHERE date = ? ORDER BY time",
+                (date_str,),
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def get_today_tasks(self) -> List[Dict[str, Any]]:
+        """获取今日任务"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        return await self.get_tasks_for_date(today)
+
+    async def get_all_tasks(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """获取所有任务（按日期倒序）"""
+        cursor = await self._db.execute(
+            "SELECT * FROM tasks ORDER BY date DESC, time LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def get_pending_tasks_with_time(self, date_str: Optional[str] = None) -> List[Dict[str, Any]]:
+        """获取有时间的待办任务"""
+        if date_str is None:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+        cursor = await self._db.execute(
+            """SELECT * FROM tasks
+               WHERE date <= ? AND status = 'pending'
+               AND time != '' AND time IS NOT NULL
+               ORDER BY date, time""",
+            (date_str,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def update_task_status(self, task_id: str, status: str) -> None:
+        """更新任务状态"""
+        await self._db.execute(
+            "UPDATE tasks SET status = ? WHERE id = ?",
+            (status, task_id),
+        )
+        await self._db.commit()
+
+    async def mark_done_by_prefix(self, prefix: str) -> None:
+        """按前缀标记任务完成"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        cursor = await self._db.execute(
+            "SELECT id FROM tasks WHERE id LIKE ? AND date = ? AND status = 'pending'",
+            (prefix + "%", today),
+        )
+        rows = await cursor.fetchall()
+        for row in rows:
+            await self._db.execute(
+                "UPDATE tasks SET status = 'done' WHERE id = ?",
+                (row["id"],),
+            )
+        await self._db.commit()
