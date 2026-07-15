@@ -34,6 +34,7 @@ from src.companion.scheduler import CronScheduler
 from src.llm.factory import create_llm_provider
 from src.memory.database import MemoryDatabase
 from src.companion.task_manager import TaskManager
+from src.companion.command_dispatcher import CommandDispatcher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -172,6 +173,16 @@ async def daemon_mode(settings):
     # === 注册定时任务 ===
 
     task_mgr = TaskManager(settings.memory.db_path)
+    dispatcher = CommandDispatcher(
+        daily_report=daily_report,
+        report_gen=report_gen,
+        tracker=tracker,
+        analyzer=analyzer,
+        memory=memory,
+        handler=handler,
+        task_mgr=task_mgr,
+        llm=llm,
+    )
 
 
 
@@ -482,36 +493,8 @@ async def daemon_mode(settings):
             logger.info(f"收到飞书消息 [{msg.sender_name}]: {msg.content}")
             handler.start_session()
             
-            # 处理特殊命令
-            content = msg.content.strip()
-            if content == "日报":
-                report = await daily_report.generate_daily_report()
-                await feishu_conn.broadcast(msg.chat_id, f"📋 今日日报\n\n{report}")
-            elif content == "周报":
-                report = await report_gen.generate_weekly_report()
-                await feishu_conn.broadcast(msg.chat_id, f"📋 周报\n\n{report}")
-            elif content == "月报":
-                report = await report_gen.generate_monthly_report()
-                await feishu_conn.broadcast(msg.chat_id, f"📋 月报\n\n{report}")
-            elif content == "情绪":
-                summary = await tracker.get_emotion_summary(days=7)
-                await feishu_conn.broadcast(msg.chat_id, f"🎭 情绪摘要\n\n{summary}")
-            elif content == "模式":
-                pattern = await analyzer.analyze_weekly_pattern()
-                text = f"📊 本周模式\n总消息: {pattern['total_messages']}\n最忙: {pattern['busiest_day']}\n最闲: {pattern['quietest_day']}"
-                await feishu_conn.broadcast(msg.chat_id, text)
-            elif content == "统计":
-                stats = await memory.get_stats()
-                await feishu_conn.broadcast(msg.chat_id, f"📊 记忆统计: {stats}")
-            else:
-                # 先检测任务列表（在LLM回复前，确保任务状态已更新）
-                task_mgr.detect_task_list(content)
-                
-                response = await handler.handle_message(content)
-                await feishu_conn.broadcast(msg.chat_id, response)
-                # 检测任务完成
-                task_mgr.detect_task_completion(content, llm)
-                task_mgr.detect_task_completion(response, llm)
+            response = await dispatcher.dispatch(msg.content)
+            await feishu_conn.broadcast(msg.chat_id, response)
             
             logger.info(f"已回复飞书 [{msg.sender_name}]")
         
@@ -582,35 +565,8 @@ async def daemon_mode(settings):
                     logger.info(f"收到消息 [{msg.sender_name}]: {msg.content}")
                     handler.start_session()
 
-                    # 处理特殊命令
-                    if msg.content.strip() == "日报":
-                        report = await daily_report.generate_daily_report()
-                        await wechat_conn.broadcast(msg.sender_id, f"📋 今日日报\n\n{report}")
-                    elif msg.content.strip() == "周报":
-                        report = await report_gen.generate_weekly_report()
-                        await wechat_conn.broadcast(msg.sender_id, f"📋 周报\n\n{report}")
-                    elif msg.content.strip() == "月报":
-                        report = await report_gen.generate_monthly_report()
-                        await wechat_conn.broadcast(msg.sender_id, f"📋 月报\n\n{report}")
-                    elif msg.content.strip() == "情绪":
-                        summary = await tracker.get_emotion_summary(days=7)
-                        await wechat_conn.broadcast(msg.sender_id, f"🎭 情绪摘要\n\n{summary}")
-                    elif msg.content.strip() == "模式":
-                        pattern = await analyzer.analyze_weekly_pattern()
-                        text = f"📊 本周模式\n总消息: {pattern['total_messages']}\n最忙: {pattern['busiest_day']}\n最闲: {pattern['quietest_day']}"
-                        await wechat_conn.broadcast(msg.sender_id, text)
-                    elif msg.content.strip() == "统计":
-                        stats = await memory.get_stats()
-                        await wechat_conn.broadcast(msg.sender_id, f"📊 记忆统计: {stats}")
-                    else:
-                        # 先检测任务列表（在LLM回复前，确保任务状态已更新）
-                        task_mgr.detect_task_list(msg.content)
-                        
-                        response = await handler.handle_message(msg.content)
-                        await wechat_conn.broadcast(msg.sender_id, response)
-                        # 检测任务完成
-                        task_mgr.detect_task_completion(msg.content, llm)
-                        task_mgr.detect_task_completion(response, llm)
+                    response = await dispatcher.dispatch(msg.content)
+                    await wechat_conn.broadcast(msg.sender_id, response)
 
                     logger.info(f"已回复 [{msg.sender_name}]")
         except KeyboardInterrupt:
