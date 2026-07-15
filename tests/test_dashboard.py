@@ -1,5 +1,9 @@
 """Web Dashboard 测试"""
 import pytest
+from pathlib import Path
+
+
+TEMPLATE_DIR = Path(__file__).parent.parent / "src" / "dashboard" / "templates"
 
 
 class TestDashboard:
@@ -12,11 +16,13 @@ class TestDashboard:
         assert router is not None
 
     def test_dashboard_html_is_valid(self):
-        """测试 Dashboard HTML 内容"""
-        from src.dashboard.app import DASHBOARD_HTML
-        assert "<!DOCTYPE html>" in DASHBOARD_HTML
-        assert "小柏 Agent" in DASHBOARD_HTML
-        assert "dashboard" in DASHBOARD_HTML.lower()
+        """测试 Dashboard HTML 模板内容"""
+        html_path = TEMPLATE_DIR / "dashboard.html"
+        assert html_path.exists(), f"模板文件不存在: {html_path}"
+        html = html_path.read_text(encoding="utf-8")
+        assert "<!DOCTYPE html>" in html
+        assert "小柏 Agent" in html
+        assert "dashboard" in html.lower()
 
     def test_dashboard_has_endpoints(self):
         """测试 Dashboard 有正确端点"""
