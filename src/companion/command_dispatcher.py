@@ -85,7 +85,7 @@ class CommandDispatcher:
         # === 未知消息 → 对话流程 ===
         # 1. 检测任务列表
         if self.task_mgr:
-            self.task_mgr.detect_task_list(content)
+            await self.task_mgr.detect_task_list(content)
 
         # 2. 调用对话处理器
         response = await self.handler.handle_message(content)
