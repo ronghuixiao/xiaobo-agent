@@ -1,25 +1,32 @@
 [Unit]
-Description=XiaoBo Agent - Personal Digital Companion
-After=network.target docker.service
-Wants=docker.service
+Description=小柏 Agent - 个人数字伙伴
+After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/root/xiaobo-agent
-ExecStart=/root/.hermes/hermes-agent/venv/bin/python3 /root/xiaobo-agent/main.py --daemon
+ExecStart=/usr/bin/python3 main.py --daemon
 Restart=always
 RestartSec=10
-Environment=PYTHONPATH=/root/xiaobo-agent
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# 环境变量
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
 
 # 日志
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=xiaobo-agent
 
-# 资源限制
-MemoryMax=512M
-CPUQuota=50%
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/root/.xiaobo-agent
+ReadOnlyPaths=/root/xiaobo-agent
 
 [Install]
 WantedBy=multi-user.target

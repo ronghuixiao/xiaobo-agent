@@ -1,0 +1,45 @@
+# 小柏 Agent - Docker Compose
+# 包含 Ollama (本地LLM) + 小柏 Agent
+
+services:
+  # Ollama 本地大模型服务
+  ollama:
+    image: ollama/ollama:latest
+    container_name: xiaobo-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # 小柏 Agent
+  xiaobo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xiaobo-agent
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    volumes:
+      - xiaobo_data:/root/.xiaobo-agent
+      - ./config:/app/config:ro
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8088/api/health'); assert r.status_code == 200"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  ollama_data:
+  xiaobo_data:

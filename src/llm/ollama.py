@@ -2,6 +2,7 @@
 
 连接本地 Docker 中运行的 Ollama 服务。
 支持 chat completion 和 embedding。
+内置重试机制，应对网络波动。
 """
 
 import logging
@@ -42,21 +43,23 @@ class OllamaProvider(LLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> ChatResponse:
-        """发送 chat completion 请求到 Ollama"""
-        temp = temperature if temperature is not None else self.default_temperature
-        tokens = max_tokens if max_tokens is not None else self.default_max_tokens
+        """发送 chat completion 请求到 Ollama（带重试）"""
+        from src.llm.retry import retry_with_backoff
 
-        payload = {
-            "model": self.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "stream": False,
-            "options": {
-                "temperature": temp,
-                "num_predict": tokens,
-            },
-        }
+        async def _do_chat():
+            temp = temperature if temperature is not None else self.default_temperature
+            tokens = max_tokens if max_tokens is not None else self.default_max_tokens
 
-        try:
+            payload = {
+                "model": self.model,
+                "messages": [{"role": m.role, "content": m.content} for m in messages],
+                "stream": False,
+                "options": {
+                    "temperature": temp,
+                    "num_predict": tokens,
+                },
+            }
+
             resp = await self._client.post("/api/chat", json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -71,8 +74,16 @@ class OllamaProvider(LLMProvider):
                 },
                 metadata={"total_duration": data.get("total_duration", 0)},
             )
+
+        try:
+            return await retry_with_backoff(
+                _do_chat,
+                max_retries=3,
+                base_delay=1.0,
+                max_delay=10.0,
+            )
         except httpx.HTTPError as e:
-            logger.error(f"Ollama chat 请求失败: {e}")
+            logger.error(f"Ollama chat 请求失败（重试耗尽）: {e}")
             raise
 
     async def stream_chat(

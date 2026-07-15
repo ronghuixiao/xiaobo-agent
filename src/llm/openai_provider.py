@@ -40,11 +40,13 @@ class OpenAIProvider(LLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> ChatResponse:
-        """发送 chat completion 请求"""
-        temp = temperature if temperature is not None else self.default_temperature
-        tokens = max_tokens if max_tokens is not None else self.default_max_tokens
+        """发送 chat completion 请求（带重试）"""
+        from src.llm.retry import retry_with_backoff
 
-        try:
+        async def _do_chat():
+            temp = temperature if temperature is not None else self.default_temperature
+            tokens = max_tokens if max_tokens is not None else self.default_max_tokens
+
             response = await self._client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": m.role, "content": m.content} for m in messages],
@@ -61,8 +63,16 @@ class OpenAIProvider(LLMProvider):
                     "completion_tokens": response.usage.completion_tokens if response.usage else 0,
                 },
             )
+
+        try:
+            return await retry_with_backoff(
+                _do_chat,
+                max_retries=3,
+                base_delay=1.0,
+                max_delay=10.0,
+            )
         except Exception as e:
-            logger.error(f"OpenAI API 请求失败: {e}")
+            logger.error(f"OpenAI API 请求失败（重试耗尽）: {e}")
             raise
 
     async def stream_chat(
