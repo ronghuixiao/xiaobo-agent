@@ -15,7 +15,7 @@ async def web_mode(settings):
     llm = create_llm_provider(settings.llm)
     memory = MemoryDatabase(settings.memory.db_path)
     await memory.initialize()
-    task_mgr = TaskManager(settings.memory.db_path)
+    task_mgr = TaskManager(memory)
 
     app = FastAPI(title="小柏 Agent API", version="0.3.0")
     app.add_middleware(

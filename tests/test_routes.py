@@ -18,7 +18,7 @@ def app():
     tracker = AsyncMock()
     tracker.get_emotion_summary.return_value = "情绪摘要"
 
-    task_mgr = MagicMock()
+    task_mgr = AsyncMock()
     task_mgr.get_tasks_for_date.return_value = [
         {"id": "t1", "title": "写代码", "date": "2026-07-15", "status": "pending"}
     ]

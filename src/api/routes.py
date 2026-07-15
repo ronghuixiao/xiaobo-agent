@@ -53,29 +53,29 @@ def create_api_router(
     @router.get("/api/tasks")
     async def get_tasks(date: str = ""):
         if date:
-            tasks = task_mgr.get_tasks_for_date(date)
+            tasks = await task_mgr.get_tasks_for_date(date)
         else:
-            tasks = task_mgr.get_all_tasks()
+            tasks = await task_mgr.get_all_tasks()
         return {"tasks": tasks}
 
     @router.get("/api/tasks/today")
     async def get_today_tasks():
         today = datetime.now().strftime("%Y-%m-%d")
-        return {"date": today, "tasks": task_mgr.get_today_tasks()}
+        return {"date": today, "tasks": await task_mgr.get_today_tasks()}
 
     @router.post("/api/tasks")
     async def create_task(title: str = "", date: str = "", time: str = "", task_type: str = "user"):
-        task_id = task_mgr.create_task(title, date, time, task_type)
+        task_id = await task_mgr.create_task(title, date, time, task_type)
         return {"id": task_id, "status": "created"}
 
     @router.put("/api/tasks/{task_id}/status")
     async def update_task_status(task_id: str, status: str = "done"):
-        task_mgr.update_task_status(task_id, status)
+        await task_mgr.update_task_status(task_id, status)
         return {"status": "updated"}
 
     @router.get("/api/tasks/upcoming")
     async def get_upcoming_tasks():
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        return {"tasks": task_mgr.get_pending_tasks_with_time(tomorrow)}
+        return {"tasks": await task_mgr.get_pending_tasks_with_time(tomorrow)}
 
     return router

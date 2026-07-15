@@ -36,9 +36,10 @@ class TestCommandDispatcher:
         handler = AsyncMock()
         handler.handle_message.return_value = "对话回复"
 
-        task_mgr = MagicMock()
+        task_mgr = AsyncMock()
+        task_mgr.detect_task_completion = MagicMock()  # sync method
 
-        llm = MagicMock()  # Mock LLM for task completion detection
+        llm = MagicMock()
 
         return CommandDispatcher(
             daily_report=daily_report,
@@ -105,7 +106,6 @@ class TestCommandDispatcher:
     async def test_task_completion_after_reply(self, dispatcher):
         """测试对话后触发任务完成检测"""
         await dispatcher.dispatch("做完了写代码的任务")
-        # detect_task_completion 被调用两次：一次传用户消息，一次传回复
         assert dispatcher.task_mgr.detect_task_completion.call_count == 2
 
     @pytest.mark.asyncio

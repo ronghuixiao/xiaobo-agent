@@ -56,7 +56,7 @@ async def daemon_mode(settings):
 
     # === 注册定时任务 ===
 
-    task_mgr = TaskManager(settings.memory.db_path)
+    task_mgr = TaskManager(memory)
     dispatcher = CommandDispatcher(
         daily_report=daily_report,
         report_gen=report_gen,
@@ -83,7 +83,7 @@ async def daemon_mode(settings):
             report = await daily_report.generate_daily_report()
             logger.info(f"📋 日报生成完成: {report[:100]}...")
             await send_to_user(f"📋 今日日报\n\n{report}")
-            task_mgr.mark_done_by_prefix("today-")
+            await task_mgr.mark_done_by_prefix("today-")
         except Exception as e:
             logger.error(f"日报生成失败: {e}")
 
@@ -113,7 +113,7 @@ async def daemon_mode(settings):
         try:
             now = _dt.now()
             today = now.strftime("%Y-%m-%d")
-            pending = task_mgr.get_pending_tasks_with_time(today)
+            pending = await task_mgr.get_pending_tasks_with_time(today)
             for task in pending:
                 task_id, task_date, task_time, task_title = task["id"], task["date"], task["time"], task["title"]
                 task_dt = _dt.strptime(f"{task_date} {task_time}", "%Y-%m-%d %H:%M")
@@ -138,7 +138,7 @@ async def daemon_mode(settings):
                     ))
                     scheduler._last_run[reminder_key] = now.date()
                     if -5 <= diff_minutes <= 5:
-                        task_mgr.update_task_status(task_id, "done")
+                        await task_mgr.update_task_status(task_id, "done")
         except Exception as e:
             logger.error(f"task reminder check failed: {e}")
 
@@ -150,7 +150,7 @@ async def daemon_mode(settings):
     # 自动创建今日内置任务
     async def _ensure_builtin_tasks():
         """创建当天的内置系统任务（早间签到、主动关怀检查、每日日报生成）"""
-        task_mgr.ensure_builtin_tasks()
+        await task_mgr.ensure_builtin_tasks()
 
     # 启动时立即创建今天的内置任务
     try:
