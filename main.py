@@ -35,6 +35,7 @@ from src.llm.factory import create_llm_provider
 from src.memory.database import MemoryDatabase
 from src.companion.task_manager import TaskManager
 from src.companion.command_dispatcher import CommandDispatcher
+from src.api.routes import create_api_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -298,53 +299,11 @@ async def daemon_mode(settings):
         web_app.include_router(create_phone_router())
         web_app.include_router(create_dashboard_router())
         web_app.include_router(create_chat_router())
-
-        @web_app.get("/")
-        async def root():
-            return {"name": "小柏 Agent", "version": "0.3.0", "status": "running"}
-
-        @web_app.get("/api/health")
-        async def health_check():
-            """健康检查端点"""
-            return {"status": "ok", "timestamp": datetime.now().isoformat()}
-
-        @web_app.get("/api/stats")
-        async def get_stats():
-            return await memory.get_stats()
-
-        @web_app.get("/api/emotions/summary")
-        async def get_emotion_summary(days: int = 7):
-            return await tracker.get_emotion_summary(days)
-
-        @web_app.get("/api/tasks")
-        async def get_tasks(date: str = ""):
-            if date:
-                tasks = task_mgr.get_tasks_for_date(date)
-            else:
-                tasks = task_mgr.get_all_tasks()
-            return {"tasks": tasks}
-
-        @web_app.get("/api/tasks/today")
-        async def get_today_tasks():
-            from datetime import datetime as _dt
-            _today = _dt.now().strftime("%Y-%m-%d")
-            return {"date": _today, "tasks": task_mgr.get_today_tasks()}
-
-        @web_app.post("/api/tasks")
-        async def create_task(title: str = "", date: str = "", time: str = "", task_type: str = "user"):
-            _tid = task_mgr.create_task(title, date, time, task_type)
-            return {"id": _tid, "status": "created"}
-
-        @web_app.put("/api/tasks/{task_id}/status")
-        async def update_task_status(task_id: str, status: str = "done"):
-            task_mgr.update_task_status(task_id, status)
-            return {"status": "updated"}
-
-        @web_app.get("/api/tasks/upcoming")
-        async def get_upcoming_tasks():
-            from datetime import datetime as _dt, timedelta as _td
-            _tomorrow = (_dt.now() + _td(days=1)).strftime("%Y-%m-%d")
-            return {"tasks": task_mgr.get_pending_tasks_with_time(_tomorrow)}
+        web_app.include_router(create_api_router(
+            memory=memory,
+            tracker=tracker,
+            task_mgr=task_mgr,
+        ))
 
         # === 飞书 Webhook 路由（集成到8088端口） ===
         import json as _json
@@ -605,6 +564,7 @@ async def web_mode(settings):
     llm = create_llm_provider(settings.llm)
     memory = MemoryDatabase(settings.memory.db_path)
     await memory.initialize()
+    task_mgr = TaskManager(settings.memory.db_path)
 
     app = FastAPI(title="小柏 Agent API", version="0.3.0")
     app.add_middleware(
@@ -614,14 +574,7 @@ async def web_mode(settings):
         allow_headers=["*"],
     )
     app.include_router(create_phone_router())
-
-    @app.get("/")
-    async def root():
-        return {"name": "小柏 Agent", "version": "0.3.0", "status": "running"}
-
-    @app.get("/api/stats")
-    async def get_stats():
-        return await memory.get_stats()
+    app.include_router(create_api_router(memory=memory, task_mgr=task_mgr))
 
     print(f"🌐 小柏 API 服务启动: http://0.0.0.0:8088")
     config = uvicorn.Config(app, host="0.0.0.0", port=8088)
