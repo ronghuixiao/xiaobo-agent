@@ -33,6 +33,7 @@ from src.companion.proactive import ProactiveEngine
 from src.companion.scheduler import CronScheduler
 from src.llm.factory import create_llm_provider
 from src.memory.database import MemoryDatabase
+from src.companion.task_manager import TaskManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -170,214 +171,14 @@ async def daemon_mode(settings):
 
     # === 注册定时任务 ===
 
-    def _mark_task_done(prefix: str):
-        import sqlite3 as _sqlite3
-        from datetime import datetime as _dt
-        try:
-            import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            today = _dt.now().strftime("%Y-%m-%d")
-            rows = _conn.execute(
-                "SELECT id FROM tasks WHERE id LIKE ? AND date = ? AND status = 'pending'",
-                (prefix + "%", today)
-            ).fetchall()
-            for row in rows:
-                _conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (row[0],))
-                logger.info(f"✅ task done: {row[0]}")
-            _conn.commit(); _conn.close()
-        except Exception as e:
-            logger.warning(f"mark task done failed: {e}")
+    task_mgr = TaskManager(settings.memory.db_path)
 
-    def _detect_task_list(message: str):
-        """检测用户输入的任务列表并保存到数据库
-        
-        识别格式：
-        - 今日任务：A；B；C
-        - 任务清单：A、B、C
-        - 今天要做：A, B, C
-        
-        行为：
-        - 如果任务已存在且状态为 pending，跳过
-        - 如果任务已存在但状态为 done，重置为 pending（用户重新提供清单时）
-        - 如果是新任务，添加为 pending
-        """
-        import sqlite3 as _sqlite3
-        from datetime import datetime as _dt
-        import os as _os
-        import re
-        
-        # 检测任务列表模式
-        patterns = [
-            r'今日任务[：:]\s*(.+)',
-            r'任务清单[：:]\s*(.+)',
-            r'今天要做[：:]\s*(.+)',
-            r'今天的任务[：:]\s*(.+)',
-            r'今日待办[：:]\s*(.+)',
-        ]
-        
-        tasks = []
-        for pattern in patterns:
-            match = re.search(pattern, message)
-            if match:
-                # 提取任务列表（支持；、，,分隔）
-                task_str = match.group(1)
-                tasks = re.split(r'[；;、，,]', task_str)
-                tasks = [t.strip() for t in tasks if t.strip()]
-                break
-        
-        if not tasks:
-            return  # 没有检测到任务列表
-        
-        today = _dt.now().strftime("%Y-%m-%d")
-        
-        try:
-            _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            
-            # 获取今天的所有用户任务（包括已完成的）
-            existing = _conn.execute(
-                "SELECT id, title, status FROM tasks WHERE date = ? AND type = 'user'",
-                (today,)
-            ).fetchall()
-            existing_map = {row[1]: (row[0], row[2]) for row in existing}  # title -> (id, status)
-            
-            # 处理任务列表
-            new_count = 0
-            reset_count = 0
-            for task_title in tasks:
-                if task_title in existing_map:
-                    task_id, current_status = existing_map[task_title]
-                    if current_status == 'done':
-                        # 任务已完成，但用户重新提供清单，重置为 pending
-                        _conn.execute(
-                            "UPDATE tasks SET status = 'pending' WHERE id = ?",
-                            (task_id,)
-                        )
-                        reset_count += 1
-                        logger.info(f"🔄 重置任务: {task_title} (done → pending)")
-                    else:
-                        # 任务已存在且为 pending，跳过
-                        pass
-                else:
-                    # 新任务，添加
-                    task_id = f"user-{today}-{hash(task_title) % 1000000:06d}"
-                    _conn.execute(
-                        "INSERT INTO tasks (id, title, date, time, status, type, created_at) VALUES (?, ?, ?, '', 'pending', 'user', ?)",
-                        (task_id, task_title, today, _dt.now().isoformat())
-                    )
-                    new_count += 1
-                    logger.info(f"📝 新增任务: {task_title}")
-            
-            if new_count > 0 or reset_count > 0:
-                _conn.commit()
-                parts = []
-                if new_count > 0:
-                    parts.append(f"{new_count}个新任务")
-                if reset_count > 0:
-                    parts.append(f"{reset_count}个重置")
-                logger.info(f"✅ 今日任务已更新: {', '.join(parts)}")
-            
-            _conn.close()
-        except Exception as e:
-            logger.warning(f"保存任务列表失败: {e}")
 
-    def _detect_task_completion(message: str):
-        """使用LLM检测对话中是否提到任务完成，并更新任务状态"""
-        import sqlite3 as _sqlite3
-        from datetime import datetime as _dt
-        import os as _os
-        import json as _json
-        import asyncio
-        import threading
-        from src.llm.base import ChatMessage
-        
-        logger.info(f"🔍 检测任务完成: {message[:50]}...")
-        
-        def _run_async():
-            """在新线程中运行异步检测"""
-            async def _async_detect():
-                try:
-                    _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-                    _conn = _sqlite3.connect(_db, timeout=10)
-                    today = _dt.now().strftime("%Y-%m-%d")
-                    
-                    # 获取今天的待办任务
-                    pending_tasks = _conn.execute(
-                        "SELECT id, title FROM tasks WHERE date = ? AND status = 'pending'",
-                        (today,)
-                    ).fetchall()
-                    
-                    if not pending_tasks:
-                        logger.info("🔍 无待办任务，跳过检测")
-                        _conn.close()
-                        return
-                    
-                    logger.info(f"🔍 待办任务: {[t[1] for t in pending_tasks]}")
-                    
-                    # 构建任务列表
-                    task_list = "\n".join([f"- {task_id}: {task_title}" for task_id, task_title in pending_tasks])
-                    
-                    # 使用LLM判断任务完成
-                    prompt = f"""判断用户消息中是否表达了某个任务已完成。
-今天的待办任务：
-{task_list}
-用户消息："{message}"
-规则：
-- 判断是否表达"完成了/做完了/搞定了/OK了/结束了/通过了/交了/过了"等任何完成含义
-- 只匹配列表中的任务
-- 返回JSON数组，格式为[{{"task_id": "xxx", "completed": true}}]，没有匹配返回[]
-只返回JSON。"""
-                    
-                    # 调用LLM
-                    logger.info("🔍 调用LLM检测...")
-                    response = await llm.chat([ChatMessage(role="user", content=prompt)])
-                    logger.info(f"🔍 LLM响应: {response.content[:200]}")
-                    
-                    # 解析LLM返回的JSON
-                    try:
-                        # 提取JSON部分
-                        response_text = response.content
-                        start_idx = response_text.find('[')
-                        end_idx = response_text.rfind(']') + 1
-                        if start_idx != -1 and end_idx != -1:
-                            json_str = response_text[start_idx:end_idx]
-                            completed_tasks = _json.loads(json_str)
-                            logger.info(f"🔍 解析到完成任务: {completed_tasks}")
-                            
-                            # 更新任务状态
-                            for task in completed_tasks:
-                                if task.get("completed") and task.get("task_id"):
-                                    task_id = task["task_id"]
-                                    # 验证任务ID是否在pending列表中
-                                    if any(t[0] == task_id for t in pending_tasks):
-                                        _conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
-                                        logger.info(f"✅ 任务已完成(LLM检测): {task_id}")
-                                    else:
-                                        logger.warning(f"⚠️ 任务ID不在待办列表中: {task_id}")
-                        else:
-                            logger.info("🔍 LLM响应中未找到JSON数组")
-                    except (_json.JSONDecodeError, KeyError, TypeError) as e:
-                        logger.warning(f"解析LLM任务完成检测结果失败: {e}")
-                    
-                    _conn.commit()
-                    _conn.close()
-                except Exception as e:
-                    logger.warning(f"检测任务完成失败: {e}", exc_info=True)
-            
-            # 运行异步检测
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(_async_detect())
-            finally:
-                loop.close()
-        
-        # 在新线程中运行
-        thread = threading.Thread(target=_run_async, daemon=True)
-        thread.start()
+
+
     
-    # 重新初始化聊天 API，注入 _detect_task_list 函数
-    init_chat(handler, memory, detect_task_list=_detect_task_list)
+    # 重新初始化聊天 API，注入任务检测函数
+    init_chat(handler, memory, detect_task_list=task_mgr.detect_task_list)
     
     # send_to_user 在 wechat_conn/feishu_conn 定义之后再创建（见下方）
 
@@ -388,7 +189,7 @@ async def daemon_mode(settings):
             report = await daily_report.generate_daily_report()
             logger.info(f"📋 日报生成完成: {report[:100]}...")
             await send_to_user(f"📋 今日日报\n\n{report}")
-            _mark_task_done("today-")
+            task_mgr.mark_done_by_prefix("today-")
         except Exception as e:
             logger.error(f"日报生成失败: {e}")
 
@@ -414,21 +215,12 @@ async def daemon_mode(settings):
 
     # 任务到期提醒（每30分钟）
     async def check_pending_task_reminders():
-        import sqlite3 as _sqlite3
         from datetime import datetime as _dt
         try:
-            import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            _conn.row_factory = _sqlite3.Row
             now = _dt.now()
             today = now.strftime("%Y-%m-%d")
-            rows = _conn.execute(
-                "SELECT * FROM tasks WHERE date <= ? AND status = 'pending' AND time != '' AND time IS NOT NULL ORDER BY date, time",
-                (today,)
-            ).fetchall()
-            _conn.close()
-            for row in rows:
-                task = dict(row)
+            pending = task_mgr.get_pending_tasks_with_time(today)
+            for task in pending:
                 task_id, task_date, task_time, task_title = task["id"], task["date"], task["time"], task["title"]
                 task_dt = _dt.strptime(f"{task_date} {task_time}", "%Y-%m-%d %H:%M")
                 diff_minutes = (task_dt - now).total_seconds() / 60
@@ -448,16 +240,11 @@ async def daemon_mode(settings):
                         session_id="proactive",
                         role="assistant",
                         content=msg,
-                        timestamp=_dt.now(),
+                        timestamp=now,
                     ))
                     scheduler._last_run[reminder_key] = now.date()
                     if -5 <= diff_minutes <= 5:
-                        try:
-                            _c2 = _sqlite3.connect(_db, timeout=10)
-                            _c2.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
-                            _c2.commit(); _c2.close()
-                        except Exception:
-                            pass
+                        task_mgr.update_task_status(task_id, "done")
         except Exception as e:
             logger.error(f"task reminder check failed: {e}")
 
@@ -469,24 +256,7 @@ async def daemon_mode(settings):
     # 自动创建今日内置任务
     async def _ensure_builtin_tasks():
         """创建当天的内置系统任务（早间签到、主动关怀检查、每日日报生成）"""
-        import sqlite3 as _sqlite3
-        from datetime import datetime as _dt
-        import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-        _conn = _sqlite3.connect(_db, timeout=10)
-        today = _dt.now().strftime("%Y-%m-%d")
-        existing = _conn.execute("SELECT id FROM tasks WHERE date = ? AND type = 'builtin'", (today,)).fetchall()
-        if not existing:
-            builtin_tasks = [
-                (f"today-{today}-0800", "早间签到", "08:00", today, "pending", "builtin"),
-                (f"today-{today}-0900", "主动关怀检查", "09:00", today, "pending", "builtin"),
-                (f"today-{today}-2200", "每日日报生成", "22:00", today, "pending", "builtin"),
-            ]
-            for t in builtin_tasks:
-                _conn.execute("INSERT OR IGNORE INTO tasks (id, title, time, date, status, type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (*t, _dt.now().isoformat()))
-            _conn.commit()
-            logger.info(f"✅ Created {len(builtin_tasks)} builtin tasks for today")
-        _conn.close()
+        task_mgr.ensure_builtin_tasks()
 
     # 启动时立即创建今天的内置任务
     try:
@@ -537,64 +307,33 @@ async def daemon_mode(settings):
 
         @web_app.get("/api/tasks")
         async def get_tasks(date: str = ""):
-            import sqlite3 as _sqlite3
-            import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            _conn.row_factory = _sqlite3.Row
             if date:
-                _rows = _conn.execute("SELECT * FROM tasks WHERE date = ? ORDER BY time", (date,)).fetchall()
+                tasks = task_mgr.get_tasks_for_date(date)
             else:
-                _rows = _conn.execute("SELECT * FROM tasks ORDER BY date DESC, time").fetchall()
-            _conn.close()
-            return {"tasks": [dict(_r) for _r in _rows]}
+                tasks = task_mgr.get_all_tasks()
+            return {"tasks": tasks}
 
         @web_app.get("/api/tasks/today")
         async def get_today_tasks():
-            import sqlite3 as _sqlite3
             from datetime import datetime as _dt
-            import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            _conn.row_factory = _sqlite3.Row
             _today = _dt.now().strftime("%Y-%m-%d")
-            _rows = _conn.execute("SELECT * FROM tasks WHERE date = ? ORDER BY time", (_today,)).fetchall()
-            _conn.close()
-            return {"date": _today, "tasks": [dict(_r) for _r in _rows]}
+            return {"date": _today, "tasks": task_mgr.get_today_tasks()}
 
         @web_app.post("/api/tasks")
         async def create_task(title: str = "", date: str = "", time: str = "", task_type: str = "user"):
-            import sqlite3 as _sqlite3, uuid as _uuid
-            from datetime import datetime as _dt
-            import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            _tid = "task-" + str(_uuid.uuid4())[:8]
-            _conn.execute("INSERT INTO tasks (id, title, date, time, status, type, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)",
-                         (_tid, title, date, time, task_type, _dt.now().isoformat()))
-            _conn.commit(); _conn.close()
+            _tid = task_mgr.create_task(title, date, time, task_type)
             return {"id": _tid, "status": "created"}
 
         @web_app.put("/api/tasks/{task_id}/status")
         async def update_task_status(task_id: str, status: str = "done"):
-            import sqlite3 as _sqlite3
-            import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            _conn.execute("UPDATE tasks SET status = ? WHERE id = ?", (status, task_id))
-            _conn.commit(); _conn.close()
+            task_mgr.update_task_status(task_id, status)
             return {"status": "updated"}
 
         @web_app.get("/api/tasks/upcoming")
         async def get_upcoming_tasks():
-            import sqlite3 as _sqlite3
             from datetime import datetime as _dt, timedelta as _td
-            import os as _os; _db = _os.path.expanduser("~/.xiaobo-agent/memory.db")
-            _conn = _sqlite3.connect(_db, timeout=10)
-            _conn.row_factory = _sqlite3.Row
             _tomorrow = (_dt.now() + _td(days=1)).strftime("%Y-%m-%d")
-            _rows = _conn.execute(
-                "SELECT * FROM tasks WHERE date >= ? AND status = 'pending' AND time != '' AND time IS NOT NULL ORDER BY date, time",
-                (_tomorrow,)
-            ).fetchall()
-            _conn.close()
-            return {"tasks": [dict(_r) for _r in _rows]}
+            return {"tasks": task_mgr.get_pending_tasks_with_time(_tomorrow)}
 
         # === 飞书 Webhook 路由（集成到8088端口） ===
         import json as _json
@@ -766,13 +505,13 @@ async def daemon_mode(settings):
                 await feishu_conn.broadcast(msg.chat_id, f"📊 记忆统计: {stats}")
             else:
                 # 先检测任务列表（在LLM回复前，确保任务状态已更新）
-                _detect_task_list(content)
+                task_mgr.detect_task_list(content)
                 
                 response = await handler.handle_message(content)
                 await feishu_conn.broadcast(msg.chat_id, response)
                 # 检测任务完成
-                _detect_task_completion(content)
-                _detect_task_completion(response)
+                task_mgr.detect_task_completion(content, llm)
+                task_mgr.detect_task_completion(response, llm)
             
             logger.info(f"已回复飞书 [{msg.sender_name}]")
         
@@ -865,13 +604,13 @@ async def daemon_mode(settings):
                         await wechat_conn.broadcast(msg.sender_id, f"📊 记忆统计: {stats}")
                     else:
                         # 先检测任务列表（在LLM回复前，确保任务状态已更新）
-                        _detect_task_list(msg.content)
+                        task_mgr.detect_task_list(msg.content)
                         
                         response = await handler.handle_message(msg.content)
                         await wechat_conn.broadcast(msg.sender_id, response)
                         # 检测任务完成
-                        _detect_task_completion(msg.content)
-                        _detect_task_completion(response)
+                        task_mgr.detect_task_completion(msg.content, llm)
+                        task_mgr.detect_task_completion(response, llm)
 
                     logger.info(f"已回复 [{msg.sender_name}]")
         except KeyboardInterrupt:
