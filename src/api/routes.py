@@ -13,6 +13,7 @@ def create_api_router(
     memory=None,
     tracker=None,
     task_mgr=None,
+    dependencies=None,
 ) -> APIRouter:
     """创建 API 路由
 
@@ -20,8 +21,9 @@ def create_api_router(
         memory: MemoryDatabase 实例
         tracker: EmotionTracker 实例
         task_mgr: TaskManager 实例
+        dependencies: FastAPI 依赖列表（如认证）
     """
-    router = APIRouter(tags=["api"])
+    router = APIRouter(tags=["api"], dependencies=dependencies or [])
 
     # === 根路径 ===
 
