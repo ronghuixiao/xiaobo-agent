@@ -197,6 +197,11 @@ class TaskManager:
     async def get_today_tasks(self):
         return await self.db.get_today_tasks()
 
+    async def get_pending_tasks_with_time(self, date_str: str):
+        """获取指定日期有时间安排的待办任务"""
+        tasks = await self.db.get_tasks_for_date(date_str)
+        return [t for t in tasks if t["status"] == "pending" and t.get("time")]
+
     async def update_task_status(self, task_id: str, status: str):
         await self.db.update_task_status(task_id, status)
 

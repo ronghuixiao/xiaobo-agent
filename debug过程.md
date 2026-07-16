@@ -1878,3 +1878,40 @@ LLM 只能靠对话历史推断，一旦历史被截断就完蛋。
 1. **DESC排序的切片方向是经典坑** — `ORDER BY timestamp DESC` 后 `list[-20:]` 取的是最旧的，不是最新的
 2. **LLM不能靠猜** — 系统提示必须注入结构化数据（任务列表），不能只靠对话历史推断
 3. **双重保障** — 对话历史提供事件经过（用户说"完成了"），任务列表提供准确状态（哪些pending/done），两者结合才能准确回复
+
+## 问题33：Dashboard任务不显示 — TaskManager缺少方法（2026-07-15 21:55）
+
+**现象**：
+重启 daemon 后，Chat 界面可以正常显示任务，但 Dashboard 页面任务区域显示"加载失败"。
+
+**排查过程**：
+
+1. **查 API 端点** — `/api/tasks/today` 正常返回数据
+2. **查 Dashboard 日志** — 发现报错：
+```
+AttributeError: 'TaskManager' object has no attribute 'get_pending_tasks_with_time'
+```
+3. **定位代码** — `src/api/routes.py` 第81行：
+```python
+return {"tasks": await task_mgr.get_pending_tasks_with_time(tomorrow)}
+```
+4. **根因** — `TaskManager` 类没有 `get_pending_tasks_with_time` 方法。这是第三步重构时提取 TaskManager 遗漏的方法。
+
+**修复方案**：
+在 `TaskManager` 中添加 `get_pending_tasks_with_time(date_str)` 方法，筛选有时间安排的待办任务。
+
+**修改的文件**：
+- `src/companion/task_manager.py` — 添加 `get_pending_tasks_with_time` 方法
+
+**验证结果**：
+```
+✅ 116/116 测试通过
+✅ Dashboard 任务区域正常显示
+✅ /api/tasks/upcoming 端点正常返回
+```
+
+**Git Commit**: `待提交`
+
+**教训**：
+1. **重构时要检查所有调用方** — 提取 TaskManager 时遗漏了 routes.py 中的调用
+2. **Dashboard 需要专门测试** — 之前的测试没有覆盖 Dashboard 的完整加载流程
