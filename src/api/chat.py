@@ -564,7 +564,8 @@ def create_chat_router() -> APIRouter:
             _handler.start_session()
 
         # 先检测任务列表（在LLM回复前，确保任务状态已更新）
-        _detect_task_list(req.message)
+        if _detect_task_list:
+            await _detect_task_list(req.message)
         
         reply = await _handler.handle_message(req.message)
         
@@ -597,7 +598,8 @@ def create_chat_router() -> APIRouter:
         full_response = ""
         
         # 先检测任务列表（在LLM回复前，确保任务状态已更新）
-        _detect_task_list(req.message)
+        if _detect_task_list:
+            await _detect_task_list(req.message)
         
         async def event_generator():
             """SSE 事件生成器"""
