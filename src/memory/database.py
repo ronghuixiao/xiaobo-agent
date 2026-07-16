@@ -92,6 +92,17 @@ CREATE TABLE IF NOT EXISTS summaries (
 );
 CREATE INDEX IF NOT EXISTS idx_summaries_date ON summaries(date);
 CREATE INDEX IF NOT EXISTS idx_summaries_type ON summaries(type);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    embedding BLOB NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_embeddings_entity ON embeddings(entity_id);
+CREATE INDEX IF NOT EXISTS idx_embeddings_type ON embeddings(entity_type);
 """
 
 
