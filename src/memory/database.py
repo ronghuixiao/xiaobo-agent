@@ -81,6 +81,17 @@ CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject);
 CREATE INDEX IF NOT EXISTS idx_facts_active ON facts(is_active);
 CREATE INDEX IF NOT EXISTS idx_emotions_timestamp ON emotions(timestamp);
 CREATE INDEX IF NOT EXISTS idx_assoc_keyword ON associations(keyword);
+
+CREATE TABLE IF NOT EXISTS summaries (
+    id TEXT PRIMARY KEY,
+    date TEXT NOT NULL,
+    type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    message_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_summaries_date ON summaries(date);
+CREATE INDEX IF NOT EXISTS idx_summaries_type ON summaries(type);
 """
 
 
