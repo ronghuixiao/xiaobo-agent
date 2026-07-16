@@ -1966,3 +1966,60 @@ if _detect_task_list:
 1. **async 函数不 await 是静默 bug** — 不报错、不警告，只是不执行
 2. **API 端点需要集成测试** — 单元测试通过不代表端到端正确
 3. **重构时要检查所有调用路径** — 微信路径有 await，Chat 路径漏了
+
+## 问题35：记忆系统改进 — 语义搜索+摘要+遗忘+向量（2026-07-16 09:30）
+
+**背景**：
+原记忆系统只能按时间取最新50条记录，无法检索相关历史。用户问"我之前说过XX"时，小柏看不到。
+
+**改进内容**：
+
+### Phase 1: 最小可用
+
+#### 1.1 语义搜索集成
+- **文件**: `src/companion/handler.py`
+- **改动**: 新增 `_get_related_memories()` 方法
+- **效果**: 系统提示注入相关历史记忆
+- **测试**: `tests/test_semantic_integration.py` (5个)
+
+#### 1.2 遗忘机制
+- **文件**: `src/memory/forgetter.py`
+- **改动**: 自动清理过期/重复/低置信度记忆
+- **方法**: `forget_old_facts()`, `deduplicate_facts()`, `cleanup_low_confidence()`
+- **测试**: `tests/test_forgetter.py` (5个)
+
+### Phase 2: 增强功能
+
+#### 2.1 记忆摘要
+- **文件**: `src/memory/summarizer.py`
+- **改动**: 对话压缩成摘要
+- **方法**: `summarize_day()`, `summarize_week()`, `get_summary()`
+- **数据库**: 新增 `summaries` 表
+- **测试**: `tests/test_summarizer.py` (5个)
+
+#### 2.2 向量数据库
+- **文件**: `src/memory/vector_store.py`
+- **改动**: 向量存储支持高效语义搜索
+- **方法**: `save_embedding()`, `search_similar()`, `batch_save()`
+- **数据库**: 新增 `embeddings` 表
+- **测试**: `tests/test_vector_store.py` (5个)
+
+**验证结果**：
+```
+✅ 136/136 测试通过
+✅ 语义搜索能检索相关历史对话
+✅ 遗忘机制自动清理过期记忆
+✅ 摘要器能压缩对话
+✅ 向量存储支持高效相似度搜索
+```
+
+**Git Commits**:
+- `c03eaa4` feat: 集成语义搜索到handler
+- `683f3d7` feat: 遗忘机制
+- `fbf99c7` feat: 记忆摘要器
+- `12be626` feat: 向量数据库
+
+**教训**：
+1. **渐进式改进** — 先做最小可用，再做增强功能
+2. **测试先行** — 每个改进都先写测试再实现
+3. **不破坏现有数据** — 新增表用 `CREATE TABLE IF NOT EXISTS`
