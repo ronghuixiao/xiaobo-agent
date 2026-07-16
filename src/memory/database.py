@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS embeddings (
 );
 CREATE INDEX IF NOT EXISTS idx_embeddings_entity ON embeddings(entity_id);
 CREATE INDEX IF NOT EXISTS idx_embeddings_type ON embeddings(entity_type);
+
+CREATE TABLE IF NOT EXISTS learning_log (
+    id TEXT PRIMARY KEY,
+    topic TEXT NOT NULL,
+    content TEXT NOT NULL,
+    understanding TEXT DEFAULT '',
+    related_topics TEXT DEFAULT '',
+    tags TEXT DEFAULT '',
+    source_message_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learning_topic ON learning_log(topic);
+CREATE INDEX IF NOT EXISTS idx_learning_created ON learning_log(created_at);
 """
 
 
@@ -543,4 +556,56 @@ class MemoryDatabase:
                 "UPDATE tasks SET status = 'done' WHERE id = ?",
                 (row["id"],),
             )
+        await self._db.commit()
+
+    # ==================== 学习记录 ====================
+
+    async def save_learning_record(self, record: Dict[str, Any]) -> None:
+        """保存学习记录"""
+        await self._db.execute(
+            """INSERT OR REPLACE INTO learning_log
+               (id, topic, content, understanding, related_topics, tags,
+                source_message_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record["id"],
+                record["topic"],
+                record["content"],
+                record.get("understanding", ""),
+                record.get("related_topics", ""),
+                record.get("tags", ""),
+                record.get("source_message_id"),
+                record["created_at"],
+            ),
+        )
+        await self._db.commit()
+
+    async def get_learning_records(
+        self, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """获取学习记录，按时间倒序"""
+        cursor = await self._db.execute(
+            "SELECT * FROM learning_log ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def get_learning_records_by_topic(
+        self, topic: str
+    ) -> List[Dict[str, Any]]:
+        """按主题查询学习记录"""
+        cursor = await self._db.execute(
+            "SELECT * FROM learning_log WHERE topic = ? ORDER BY created_at DESC",
+            (topic,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def delete_learning_record(self, record_id: str) -> None:
+        """删除学习记录"""
+        await self._db.execute(
+            "DELETE FROM learning_log WHERE id = ?",
+            (record_id,),
+        )
         await self._db.commit()
