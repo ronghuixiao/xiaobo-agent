@@ -1915,3 +1915,54 @@ return {"tasks": await task_mgr.get_pending_tasks_with_time(tomorrow)}
 **教训**：
 1. **重构时要检查所有调用方** — 提取 TaskManager 时遗漏了 routes.py 中的调用
 2. **Dashboard 需要专门测试** — 之前的测试没有覆盖 Dashboard 的完整加载流程
+
+## 问题34：Chat说任务不保存 — async函数未await（2026-07-16 09:01）
+
+**现象**：
+用户在 Chat 界面说"今日任务：spring框架；中间件..."，LLM 回复"记着呢，九项都在"，但数据库里没有用户任务，Dashboard 不显示。
+
+**排查过程**：
+
+1. **查数据库** — 今天只有3个 builtin 任务，没有用户任务
+2. **查对话记录** — 用户消息已保存，LLM 已回复
+3. **正则测试** — `detect_task_list` 的正则能正确识别9个任务
+4. **定位调用链** — Chat API (`/api/chat`) 调用 `_detect_task_list(req.message)` 但**没有 await**
+
+```python
+# chat.py 第567行
+_detect_task_list(req.message)  # ❌ 没有 await！创建了协程但没执行
+```
+
+`detect_task_list` 是 `async def`，不加 `await` 只是创建协程对象，不会实际执行。任务永远不会存入数据库。
+
+**为什么微信路径没问题**：
+微信走的是 `dispatcher.dispatch()` → `await self.task_mgr.detect_task_list(content)`，有 `await`，所以微信说任务能正常保存。
+
+**为什么昨天测试没发现**：
+1. 单元测试直接调用 `await task_mgr.detect_task_list()`，没问题
+2. 没有测试 Chat API 端点的完整流程
+3. `detect_task_list` 是 async 函数，不 await 不会报错，只是静默丢弃
+
+**修复方案**：
+两处调用都加 `await` + `None` 检查：
+```python
+if _detect_task_list:
+    await _detect_task_list(req.message)
+```
+
+**修改的文件**：
+- `src/api/chat.py` — `/api/chat` 和 `/api/chat/stream` 两处调用加 await
+
+**验证结果**：
+```
+✅ 116/116 测试通过
+✅ Chat 说任务后数据库正确保存
+✅ Dashboard 正常显示任务
+```
+
+**Git Commit**: `90e251f`
+
+**教训**：
+1. **async 函数不 await 是静默 bug** — 不报错、不警告，只是不执行
+2. **API 端点需要集成测试** — 单元测试通过不代表端到端正确
+3. **重构时要检查所有调用路径** — 微信路径有 await，Chat 路径漏了
