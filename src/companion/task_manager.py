@@ -11,6 +11,7 @@ import sqlite3
 import threading
 import asyncio
 from datetime import datetime, date
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from src.memory.database import MemoryDatabase
@@ -205,6 +206,18 @@ class TaskManager:
     async def move_pending_tasks(self, from_date: str, to_date: str) -> int:
         """将指定日期的待办任务移动到另一个日期"""
         return await self.db.move_pending_tasks(from_date, to_date)
+
+    async def get_upcoming_tasks(self) -> List[Dict[str, Any]]:
+        """获取所有未来日期的 pending 任务（明天及以后）"""
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        cursor = await self.db._db.execute(
+            """SELECT * FROM tasks
+               WHERE date >= ? AND status = 'pending'
+               ORDER BY date, time""",
+            (tomorrow,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
     async def update_task_status(self, task_id: str, status: str):
         await self.db.update_task_status(task_id, status)

@@ -77,8 +77,7 @@ def create_api_router(
 
     @router.get("/api/tasks/upcoming")
     async def get_upcoming_tasks():
-        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        return {"tasks": await task_mgr.get_pending_tasks_with_time(tomorrow)}
+        return {"tasks": await task_mgr.get_upcoming_tasks()}
 
     @router.post("/api/tasks/move")
     async def move_tasks(from_date: str = "", to_date: str = ""):
