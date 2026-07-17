@@ -2023,3 +2023,50 @@ if _detect_task_list:
 1. **渐进式改进** — 先做最小可用，再做增强功能
 2. **测试先行** — 每个改进都先写测试再实现
 3. **不破坏现有数据** — 新增表用 `CREATE TABLE IF NOT EXISTS`
+
+---
+
+## 问题36：小柏回复敷衍，缺乏学习引导
+
+**日期**：2026-07-16
+**严重程度**：高
+**现象**：用户分享学习内容（如"学了反向传播"），小柏只是复读确认，没有追问、引导、关联记忆
+
+**根因分析**：
+1. System Prompt 过度强调"像朋友发微信：短、直接、不啰嗦"，抑制了深度回复
+2. 完全没有"学习伙伴"角色定义
+3. 没有区分"日常闲聊"和"学习讨论"两种模式
+4. 温度 0.7 偏高，回复发散但不够深入
+
+**修复方案**（4步工程化改进）：
+
+### Step 1: 重构 System Prompt
+- 将"说话方式"改为"对话模式"，区分闲聊模式和学习模式
+- 学习模式允许更长、更有深度的回复
+- 加入追问、巩固、关联等学习伙伴行为指令
+- 移除"太长太全面的回复"限制（学习场景需要深度）
+
+### Step 2: 学习内容识别 + 上下文注入
+- 新增 `is_learning_content()` 静态方法，基于关键词检测学习内容
+- 新增 `_get_learning_context()` 方法，从 facts 表提取学习相关记录
+- 注入到 System Prompt 的 `{learning_context}` 占位符
+
+### Step 3: 学习记录结构化
+- 新增 `learning_log` 表（topic, content, understanding, related_topics, tags）
+- 新增 CRUD 方法：save_learning_record, get_learning_records, get_learning_records_by_topic, delete_learning_record
+- 非破坏性迁移：`CREATE TABLE IF NOT EXISTS`
+
+### Step 4: 温度调整
+- 新增常量：TEMPERATURE_NORMAL=0.7, TEMPERATURE_LEARNING=0.4
+- 新增 `get_temperature()` 方法，根据消息内容动态调整
+- 学习内容自动使用更低温度，回复更稳定、更有深度
+
+**测试**：新增 20 个测试，全部通过（156/156）
+
+**Git commits**：
+- `dab3340` feat: 学习伙伴功能 - Prompt重构 + 学习识别 + 结构化记录 + 温度调整
+
+**教训**：
+1. Prompt 设计决定了 LLM 的行为边界，"像朋友聊天"的约束会抑制深度回复
+2. 需要根据对话内容动态切换模式，而不是一刀切
+3. 温度参数对回复质量有直接影响，学习场景需要更低温度

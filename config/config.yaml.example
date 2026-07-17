@@ -1,0 +1,45 @@
+# 小柏 Agent 配置文件模板
+# 复制此文件为 config.yaml 并填入你的配置
+
+llm:
+  provider: "openai"  # 或 "ollama"
+  openai:
+    api_key: "your-api-key-here"
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4"
+    temperature: 0.7
+    max_tokens: 2048
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "qwen2.5:1.5b"
+    embedding_model: "nomic-embed-text"
+    temperature: 0.7
+    max_tokens: 2048
+
+memory:
+  db_path: "~/.xiaobo-agent/memory.db"
+  max_context_messages: 50
+
+companion:
+  name: "小柏"
+  user_name: "你的名字"
+  daily_report_hour: 22
+  daily_report_minute: 0
+
+wechat:
+  enabled: false
+  ilink_token: ""
+  owner_id: ""
+
+feishu:
+  enabled: false
+  app_id: ""
+  app_secret: ""
+  encrypt_key: ""
+  verification_token: ""
+  owner_id: ""
+  webhook_port: 9000
+
+web:
+  host: "0.0.0.0"
+  port: 8088
