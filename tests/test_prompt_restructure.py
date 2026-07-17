@@ -33,10 +33,10 @@ class TestPromptRestructure:
         assert "AI味" in SYSTEM_PROMPT_TEMPLATE or "AI腔" in SYSTEM_PROMPT_TEMPLATE
         assert "加油" in SYSTEM_PROMPT_TEMPLATE
 
-    def test_prompt_has_learning_context_placeholder(self):
-        """prompt 必须有学习记录的注入占位符"""
+    def test_prompt_has_related_memories_placeholder(self):
+        """prompt 必须有相关记忆的注入占位符"""
         from src.companion.handler import SYSTEM_PROMPT_TEMPLATE
-        assert "{learning_context}" in SYSTEM_PROMPT_TEMPLATE
+        assert "{related_memories}" in SYSTEM_PROMPT_TEMPLATE
 
     def test_prompt_template_is_format_compatible(self):
         """prompt 模板必须能被 format 正确填充"""
@@ -48,10 +48,8 @@ class TestPromptRestructure:
             current_date="2026年07月16日",
             current_time="21:00",
             known_facts="（测试）",
-            recent_context="（测试）",
             related_memories="（测试）",
             today_tasks="（测试）",
-            learning_context="（测试）",
         )
         assert "小柏" in test_filled
         assert "荣慧" in test_filled

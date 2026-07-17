@@ -62,27 +62,24 @@ class TestForgetter:
         """重复事实被合并"""
         from src.memory.forgetter import Forgetter
         from src.memory.database import MemoryDatabase
-        from src.memory.base import ExtractedFact
+        import uuid
+        from datetime import datetime
 
         db = MemoryDatabase(":memory:")
         await db.initialize()
 
-        # 创建两个重复的事实
-        fact1 = ExtractedFact(
-            fact_type="preference",
-            subject="喜欢的食物",
-            content="喜欢吃火锅",
-            confidence=1.0,
-        )
-        await db.save_fact(fact1)
-
-        fact2 = ExtractedFact(
-            fact_type="preference",
-            subject="喜欢的食物",
-            content="喜欢吃火锅",
-            confidence=0.9,
-        )
-        await db.save_fact(fact2)
+        # 直接用 SQL 插入重复记录（绕过 save_fact 的 upsert）
+        now = datetime.now().isoformat()
+        for i in range(3):
+            await db._db.execute(
+                """INSERT INTO facts
+                   (id, fact_type, subject, content, confidence, source_message_id,
+                    event_time, created_at, updated_at, is_active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (str(uuid.uuid4()), "preference", "喜欢的食物", "喜欢吃火锅",
+                 0.9, None, None, now, now, 1),
+            )
+        await db._db.commit()
 
         forgetter = Forgetter(db)
         count = await forgetter.deduplicate_facts()
