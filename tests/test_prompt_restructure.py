@@ -50,6 +50,7 @@ class TestPromptRestructure:
             known_facts="（测试）",
             related_memories="（测试）",
             today_tasks="（测试）",
+            action_result="",
         )
         assert "小柏" in test_filled
         assert "荣慧" in test_filled

@@ -2129,3 +2129,102 @@ if _detect_task_list:
 
 **测试**: 70/70 通过
 **Daemon**: 已重启，健康检查通过
+
+---
+
+## Issue #39: 记忆系统重构（完整记录）
+
+**日期**: 2026-07-17
+
+### 背景
+用户反馈小柏agent的上下文记忆效果差，会出现"说空话"的情况（如说"记下了"但实际没执行）。
+
+### 根因分析
+
+**数据层面**:
+- 152条事实全量注入 prompt，噪音淹没信号
+- "实验"出现15次，"今日任务"出现12次，无去重
+- 70%事实没有日期，LLM 无法判断时间关系
+- embeddings 表为空，RAG 从未真正工作过
+- recent_context 和 LLM 收到的 messages 重复
+- learning_log/summaries 表建立但从未使用
+
+**架构层面**:
+- `_get_known_facts()` 全量dump所有事实
+- `_get_related_memories()` 用 SemanticSearch，每次重新计算500条消息的 embedding
+- `_get_recent_context()` 与对话上下文重复
+- `_get_learning_context()` 重复查询 facts 表
+- 任务移动只停留在"嘴上说"，没有实际执行逻辑
+
+### 修改清单
+
+#### 1. EmbeddingCache（新建 `src/memory/embedding_cache.py`）
+- embedding 向量持久化到 SQLite `embeddings` 表
+- struct.pack 序列化为 float32 bytes
+- `get_or_compute()`: 先查缓存，miss 才调 LLM embed
+- `get_all_by_type()`: 按类型获取所有缓存
+- `_cosine_similarity()`: 余弦相似度计算
+- 测试: `tests/test_embedding_cache.py`（5个测试）
+
+#### 2. Fact 去重（`src/memory/database.py`）
+- `save_fact()` 改为 upsert: 同 subject+fact_type 更新而非插入
+- 防止"实验完成"出现15条的问题
+- 测试: `tests/test_fact_dedup.py`（5个测试）
+
+#### 3. Fact 分层过滤（`src/companion/handler.py`）
+- `_get_known_facts()` 重写:
+  - 稳定画像（preference/opinion/habit/person/goal）全保留
+  - 临时事件（event/commitment）只保留最近7天
+  - 7天前的旧事件按 subject 去重，只保留最新1条
+  - 所有事实强制带日期
+- 152条 → 预计30-40条
+
+#### 4. Prompt 精简（`src/companion/handler.py`）
+- 删除 `{recent_context}` 注入（与 LLM 已有上下文重复）
+- 删除 `{learning_context}` 注入（重复查询 facts 表）
+- 新增 `{action_result}` 占位符（系统操作结果反馈给 LLM）
+- 从5个注入源减为3个 + 1个结果反馈
+- 新增"绝对不能说谎"规则:
+  - 不说"记住了"除非确实保存了
+  - 不承诺未来会做的事
+  - 不确定时老实说"我看一下"
+  - 宁可少说，不说空话
+
+#### 5. RAG 重写（`src/companion/handler.py`）
+- `_get_related_memories()` 用 EmbeddingCache 替代 SemanticSearch
+- 首次为最近50条消息建立 embedding 索引
+- 阈值从 0.5 降至 0.3（更宽容）
+- 结果去重：只显示 user 消息
+
+#### 6. 任务移动功能（新功能）
+- `database.py`: 新增 `move_pending_tasks(from_date, to_date)` — UPDATE 批量移动
+- `task_manager.py`: 新增 `move_pending_tasks()` 代理到 db
+- `handler.py`: 新增 `_detect_task_move()` — 正则检测"挪到明天/后天"
+- 检测到关键词后，在 LLM 回复前自动执行移动
+- 执行结果通过 `{action_result}` 注入 prompt，LLM 据此回复
+
+#### 7. Dashboard upcoming 修复（`src/api/routes.py`）
+- `/api/tasks/upcoming` 去掉 `t.get("time")` 过滤
+- 所有 pending 任务都显示，不要求有 time 字段
+
+#### 8. 聊天历史排序修复（`src/api/chat.py`）
+- `/api/chat/history` 返回时 `list(reversed(messages))`
+- 前端需要 ASC（旧→新），DB 返回 DESC（新→旧）
+
+### 测试
+- 新增测试文件: test_embedding_cache.py, test_fact_dedup.py, test_memory_context.py
+- 更新测试: test_prompt_restructure.py, test_forgetter.py
+- 核心模块 70/70 通过
+
+### Git 提交记录
+- 50c50bb: feat: EmbeddingCache — embedding 持久化缓存
+- ce0af0e: feat: Fact 去重（upsert）+ 分层过滤
+- 5324ae1: feat: 精简 prompt — 删除 recent_context 和 learning_context
+- f2283b1: feat: RAG 重写 — 用 EmbeddingCache 替代 SemanticSearch
+- 9e0703a: fix: 更新测试适配新架构
+- 13883af: docs: debug日志记录Issue #38
+- 38e86f0: feat: 任务移动功能 — 检测'挪到明天'自动执行
+
+### 手动补救
+- 用 SQL 将今天4个未完成任务（中间件、小柏agent完善、实验、锻炼）移动到明天
+- 验证 /api/tasks/upcoming 返回5个任务
