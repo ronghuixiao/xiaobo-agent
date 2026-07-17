@@ -229,27 +229,53 @@ class MemoryDatabase:
     # ---- Layer 1: 事实存储 ----
 
     async def save_fact(self, fact: ExtractedFact) -> str:
-        """保存提取的事实"""
-        await self._db.execute(
-            """INSERT INTO facts
-               (id, fact_type, subject, content, confidence, source_message_id,
-                event_time, created_at, updated_at, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                fact.id,
-                fact.fact_type,
-                fact.subject,
-                fact.content,
-                fact.confidence,
-                fact.source_message_id,
-                fact.event_time,
-                fact.created_at.isoformat(),
-                fact.updated_at.isoformat(),
-                int(fact.is_active),
-            ),
+        """保存提取的事实（upsert：同 subject+fact_type 更新，否则插入）"""
+        # 检查是否已存在同 subject+fact_type 的事实
+        cursor = await self._db.execute(
+            "SELECT id FROM facts WHERE subject = ? AND fact_type = ? LIMIT 1",
+            (fact.subject, fact.fact_type),
         )
-        await self._db.commit()
-        return fact.id
+        existing = await cursor.fetchone()
+
+        if existing:
+            # 更新旧记录
+            await self._db.execute(
+                """UPDATE facts SET
+                   content = ?, confidence = ?, event_time = ?,
+                   updated_at = ?
+                   WHERE id = ?""",
+                (
+                    fact.content,
+                    fact.confidence,
+                    fact.event_time,
+                    fact.updated_at.isoformat(),
+                    existing["id"],
+                ),
+            )
+            await self._db.commit()
+            return existing["id"]
+        else:
+            # 插入新记录
+            await self._db.execute(
+                """INSERT INTO facts
+                   (id, fact_type, subject, content, confidence, source_message_id,
+                    event_time, created_at, updated_at, is_active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    fact.id,
+                    fact.fact_type,
+                    fact.subject,
+                    fact.content,
+                    fact.confidence,
+                    fact.source_message_id,
+                    fact.event_time,
+                    fact.created_at.isoformat(),
+                    fact.updated_at.isoformat(),
+                    int(fact.is_active),
+                ),
+            )
+            await self._db.commit()
+            return fact.id
 
     async def get_facts(
         self,

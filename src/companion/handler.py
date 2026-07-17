@@ -11,7 +11,7 @@
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from config.settings import Settings
@@ -408,19 +408,55 @@ class ConversationHandler:
                 logger.info(f"🤖 LLM识别任务: {title} ({date_str})")
 
     async def _get_known_facts(self) -> str:
-        """获取已知事实，格式化为文本（所有事实，带日期）"""
-        facts = await self.memory.get_facts(limit=100)
+        """获取已知事实，分层过滤 + 去重 + 带日期"""
+        facts = await self.memory.get_facts(limit=200)
         if not facts:
             return "（暂无关于她的记录，多和她聊天来了解她吧）"
 
-        lines = []
+        # 分层：稳定画像 vs 临时事件
+        STABLE_TYPES = {"preference", "opinion", "habit", "person", "goal"}
+        TEMPORAL_TYPES = {"event", "commitment"}
+
+        stable_facts = []    # 永久保留
+        recent_events = []   # 最近7天的事件
+        old_events = {}      # 7天前：按 subject 去重，只保留最新1条
+
+        now = datetime.now()
+        cutoff = now - timedelta(days=7)
+
         for f in facts:
-            # 始终显示日期，让 LLM 自己判断时间关系
-            if f.event_time:
-                time_info = f" [日期: {f.event_time}]"
-            else:
-                time_info = f" [记录于: {f.created_at.strftime('%Y-%m-%d')}]"
+            if f.fact_type in STABLE_TYPES:
+                stable_facts.append(f)
+            elif f.fact_type in TEMPORAL_TYPES:
+                # 判断时间
+                ref_time = f.created_at
+                if ref_time.tzinfo is None:
+                    ref_time_naive = ref_time
+                else:
+                    ref_time_naive = ref_time.replace(tzinfo=None)
+
+                if ref_time_naive >= cutoff:
+                    recent_events.append(f)
+                else:
+                    # 旧事件：同 subject 只保留最新1条
+                    key = f"{f.fact_type}:{f.subject}"
+                    if key not in old_events or f.created_at > old_events[key].created_at:
+                        old_events[key] = f
+
+        # 格式化输出
+        lines = []
+        for f in stable_facts:
+            time_info = f" [{f.event_time}]" if f.event_time else ""
             lines.append(f"- [{f.fact_type}] {f.subject}: {f.content}{time_info}")
+
+        for f in recent_events:
+            time_str = f.created_at.strftime("%m月%d日")
+            lines.append(f"- [{f.fact_type}] {f.subject}: {f.content} [{time_str}]")
+
+        for f in old_events.values():
+            time_str = f.created_at.strftime("%m月%d日")
+            lines.append(f"- [{f.fact_type}] {f.subject}: {f.content} [{time_str}]")
+
         return "\n".join(lines) if lines else "（暂无近期记录）"
 
     async def _get_recent_context(self) -> str:
