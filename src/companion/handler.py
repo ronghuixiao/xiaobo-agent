@@ -489,32 +489,52 @@ class ConversationHandler:
         return "\n".join(lines) if lines else "（今日暂无任务记录）"
 
     async def _get_related_memories(self, query: str) -> str:
-        """语义检索相关历史记忆"""
+        """语义检索相关历史记忆（使用 EmbeddingCache 持久化）"""
         try:
-            from src.memory.semantic_search import SemanticSearch
-            semantic = SemanticSearch(self.llm, self.memory)
+            from src.memory.embedding_cache import EmbeddingCache
+            cache = EmbeddingCache(self.llm, self.memory)
 
-            # 检索相关对话
-            related_messages = await semantic.search_similar_messages(
-                query, limit=3, threshold=0.5
+            # 1. 获取查询的 embedding
+            query_emb = await cache.get_or_compute(
+                entity_id=f"query:{query[:50]}",
+                entity_type="query",
+                content=query,
             )
 
-            # 检索相关事实
-            related_facts = await semantic.find_related_facts(query, limit=3)
+            # 2. 获取所有缓存的消息 embedding
+            all_msg_embs = await cache.get_all_by_type("message")
+            if not all_msg_embs:
+                # 如果没有缓存，先为最近50条消息建立索引
+                messages = await self.memory.get_messages(limit=50)
+                for msg in messages:
+                    await cache.get_or_compute(
+                        entity_id=msg.id,
+                        entity_type="message",
+                        content=msg.content,
+                    )
+                all_msg_embs = await cache.get_all_by_type("message")
 
-            lines = []
-            if related_messages:
-                lines.append("相关对话：")
-                for msg, score in related_messages:
-                    time_str = msg.timestamp.strftime("%m月%d日")
-                    lines.append(f"  [{time_str}] {msg.content[:80]}")
+            # 3. 计算相似度
+            scored = []
+            msg_map = {m.id: m for m in await self.memory.get_messages(limit=500)}
+            for entity_id, emb in all_msg_embs:
+                sim = EmbeddingCache._cosine_similarity(query_emb, emb)
+                if sim >= 0.3:  # 降低阈值，更宽容
+                    msg = msg_map.get(entity_id)
+                    if msg and msg.role == "user":
+                        scored.append((msg, sim))
 
-            if related_facts:
-                lines.append("相关事实：")
-                for fact in related_facts:
-                    lines.append(f"  - {fact.subject}: {fact.content[:60]}")
+            scored.sort(key=lambda x: -x[1])
+            top = scored[:5]
 
-            return "\n".join(lines) if lines else "（暂无相关记忆）"
+            if not top:
+                return "（暂无相关记忆）"
+
+            lines = ["相关对话："]
+            for msg, score in top:
+                time_str = msg.timestamp.strftime("%m月%d日")
+                lines.append(f"  [{time_str}] {msg.content[:100]}（相似度: {score:.2f}）")
+            return "\n".join(lines)
         except Exception as e:
             logger.warning(f"语义检索失败（不影响回复）: {e}")
             return "（暂无相关记忆）"
