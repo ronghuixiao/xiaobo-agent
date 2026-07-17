@@ -33,7 +33,7 @@ class TestMemoryDatabase:
 
     @pytest.mark.asyncio
     async def test_messages_ordered_by_time(self, memory_db):
-        """测试消息按时间排序"""
+        """测试消息按时间排序（最新在前）"""
         for i in range(5):
             msg = ConversationMessage(
                 session_id="s1",
@@ -45,8 +45,9 @@ class TestMemoryDatabase:
 
         messages = await memory_db.get_messages(session_id="s1")
         assert len(messages) == 5
+        # 现在返回倒序（最新在前）
         for i in range(4):
-            assert messages[i].timestamp <= messages[i + 1].timestamp
+            assert messages[i].timestamp >= messages[i + 1].timestamp
 
     @pytest.mark.asyncio
     async def test_search_messages(self, memory_db):

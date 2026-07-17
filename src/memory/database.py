@@ -202,7 +202,7 @@ class MemoryDatabase:
                 metadata=json.loads(row["metadata"]),
             ))
 
-        return list(reversed(messages))  # 返回时间正序
+        return messages  # 返回时间倒序（最新在前）
 
     async def search_messages(self, keyword: str, limit: int = 20) -> List[ConversationMessage]:
         """关键词搜索对话消息"""
