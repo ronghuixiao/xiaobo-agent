@@ -216,6 +216,11 @@ class ConversationHandler:
         )
         await self.memory.save_message(user_msg)
 
+        # 1.5 检测任务移动指令（在 LLM 回复前执行）
+        move_result = await self._detect_task_move(user_message, user_msg.timestamp)
+        if move_result:
+            logger.info(f"📦 任务移动: {move_result}")
+
         # 2. 检索相关记忆
         known_facts = await self._get_known_facts()
         today_tasks = await self._get_today_tasks()
@@ -310,6 +315,11 @@ class ConversationHandler:
         )
         await self.memory.save_message(user_msg)
 
+        # 1.5 检测任务移动指令
+        move_result = await self._detect_task_move(user_message, user_msg.timestamp)
+        if move_result:
+            logger.info(f"📦 任务移动: {move_result}")
+
         # 2. 检索相关记忆
         known_facts = await self._get_known_facts()
         today_tasks = await self._get_today_tasks()
@@ -392,6 +402,26 @@ class ConversationHandler:
                     task_id=task_id,
                 )
                 logger.info(f"🤖 LLM识别任务: {title} ({date_str})")
+
+    async def _detect_task_move(self, user_message: str, msg_time: datetime) -> str:
+        """检测用户是否要求移动任务到另一个日期，自动执行"""
+        import re
+        from datetime import timedelta
+
+        today = msg_time.strftime("%Y-%m-%d")
+        tomorrow = (msg_time + timedelta(days=1)).strftime("%Y-%m-%d")
+        day_after = (msg_time + timedelta(days=2)).strftime("%Y-%m-%d")
+
+        # 检测"挪到明天/后天"
+        if re.search(r'挪到?明天|移到?明天|放到?明天|推到?明天|明天再做|明天再说', user_message):
+            count = await self.memory.move_pending_tasks(today, tomorrow)
+            return f"已将 {count} 个今日未完成任务移动到明天"
+
+        if re.search(r'挪到?后天|移到?后天|放到?后天|推到?后天|后天再做', user_message):
+            count = await self.memory.move_pending_tasks(today, day_after)
+            return f"已将 {count} 个今日未完成任务移动到后天"
+
+        return ""
 
     async def _get_known_facts(self) -> str:
         """获取已知事实，分层过滤 + 去重 + 带日期"""

@@ -80,4 +80,12 @@ def create_api_router(
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         return {"tasks": await task_mgr.get_pending_tasks_with_time(tomorrow)}
 
+    @router.post("/api/tasks/move")
+    async def move_tasks(from_date: str = "", to_date: str = ""):
+        """将待办任务从一个日期移动到另一个日期"""
+        if not from_date or not to_date:
+            return {"error": "需要 from_date 和 to_date 参数"}
+        count = await task_mgr.move_pending_tasks(from_date, to_date)
+        return {"moved": count, "from": from_date, "to": to_date}
+
     return router

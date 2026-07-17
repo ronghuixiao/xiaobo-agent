@@ -569,6 +569,16 @@ class MemoryDatabase:
         )
         await self._db.commit()
 
+    async def move_pending_tasks(self, from_date: str, to_date: str) -> int:
+        """将指定日期的待办任务移动到另一个日期"""
+        cursor = await self._db.execute(
+            "UPDATE tasks SET date = ? WHERE date = ? AND status = 'pending'",
+            (to_date, from_date),
+        )
+        count = cursor.rowcount
+        await self._db.commit()
+        return count
+
     async def mark_done_by_prefix(self, prefix: str) -> None:
         """按前缀标记任务完成"""
         today = datetime.now().strftime("%Y-%m-%d")
