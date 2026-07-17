@@ -407,16 +407,21 @@ class ConversationHandler:
                 logger.info(f"🤖 LLM识别任务: {title} ({date_str})")
 
     async def _get_known_facts(self) -> str:
-        """获取已知事实，格式化为文本"""
+        """获取已知事实，格式化为文本（只取最近7天）"""
+        from datetime import timedelta
+        cutoff = (datetime.now() - timedelta(days=7)).isoformat()
         facts = await self.memory.get_facts(limit=50)
         if not facts:
             return "（暂无关于她的记录，多和她聊天来了解她吧）"
 
         lines = []
         for f in facts:
+            # 只保留最近7天的事实
+            if f.created_at and f.created_at < cutoff:
+                continue
             time_info = f" [{f.event_time}]" if f.event_time else ""
             lines.append(f"- [{f.fact_type}] {f.subject}: {f.content}{time_info}")
-        return "\n".join(lines)
+        return "\n".join(lines) if lines else "（暂无近期记录）"
 
     async def _get_recent_context(self) -> str:
         """获取最近的对话上下文（带时间戳，跨会话）"""
