@@ -2103,3 +2103,29 @@ if _detect_task_list:
 1. **注释和代码不一致** — 注释说"返回时间正序"，但调用方需要倒序
 2. **测试覆盖不足** — 测试只验证了"有序"，没验证"方向"
 3. **核心功能要多验证** — 记忆是核心功能，应该有端到端测试验证LLM能看到正确上下文
+
+---
+
+## Issue #38: 记忆系统架构重写
+
+**日期**: 2026-07-17
+**问题**: 记忆系统效果差，152条事实全量注入 prompt，RAG 从未真正工作过（embedding 为空），recent_context 与 LLM 已有上下文重复
+
+**诊断结果**:
+- known_facts: 152条事实全量dump（含15条"实验"、12条"今日任务"），70%没有日期
+- recent_context: 和 LLM 收到的 messages 重复，不提供新信息
+- RAG: embeddings 表为空，每次重新计算500条消息的 embedding，极慢
+- learning_log/summaries 表: 建了但从未使用
+
+**改动**:
+1. 新建 `src/memory/embedding_cache.py` — embedding 持久化（struct 序列化到 SQLite），首次计算后缓存
+2. `database.py` 的 `save_fact()` 改为 upsert — 同 subject+fact_type 更新而非插入，防止重复
+3. `handler.py` 的 `_get_known_facts()` 重写 — 分层过滤：
+   - 稳定画像（preference/opinion/habit/person/goal）全保留
+   - 临时事件（event/commitment）只保留最近7天 + 每个 subject 去重
+4. 删除 `recent_context` 和 `learning_context` 注入 — 减少噪音
+5. `_get_related_memories()` 重写 — 用 EmbeddingCache 替代 SemanticSearch，阈值降至0.3
+6. prompt 精简：从5个注入源减为3个（known_facts + RAG + tasks）
+
+**测试**: 70/70 通过
+**Daemon**: 已重启，健康检查通过
