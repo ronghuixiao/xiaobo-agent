@@ -639,6 +639,8 @@ def create_chat_router() -> APIRouter:
             return {"messages": []}
 
         messages = await _memory.get_messages(limit=limit)
+        # get_messages 返回 DESC（最新在前），聊天界面需要 ASC（旧的在前）
+        messages = list(reversed(messages))
         return {
             "messages": [
                 {
