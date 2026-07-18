@@ -2228,3 +2228,21 @@ if _detect_task_list:
 ### 手动补救
 - 用 SQL 将今天4个未完成任务（中间件、小柏agent完善、实验、锻炼）移动到明天
 - 验证 /api/tasks/upcoming 返回5个任务
+
+
+## Issue #40: Dashboard upcoming 任务区不显示无时间的未来任务
+
+### 问题
+Dashboard 的"待办"区（upcoming tasks）只显示明天的任务，且要求任务必须有 `time` 字段。用户创建的无时间任务（如"中间件"、"小柏agent完善"等）虽然在数据库中存在，但不显示在 upcoming 区。
+
+### 根因
+1. `/api/tasks/upcoming` 端点只查询明天（`timedelta(days=1)`），后天及更远的任务被忽略
+2. `get_pending_tasks_with_time()` 数据库方法有 `AND time != '' AND time IS NOT NULL` 条件，无时间任务被过滤
+
+### 修复
+1. 新增 `TaskManager.get_upcoming_tasks()` — 查询所有 `date >= 明天 AND status = 'pending'` 的任务，不依赖 time 字段
+2. 更新 `/api/tasks/upcoming` 端点调用新方法
+3. 新增 `tests/test_upcoming_tasks.py` 包含3个测试用例
+
+### Commit
+- 8591ad6: fix: upcoming tasks API 返回所有未来pending任务，不限单天和有时间的任务

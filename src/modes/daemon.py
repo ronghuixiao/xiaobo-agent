@@ -116,6 +116,9 @@ async def daemon_mode(settings):
             pending = await task_mgr.get_pending_tasks_with_time(today)
             for task in pending:
                 task_id, task_date, task_time, task_title = task["id"], task["date"], task["time"], task["title"]
+                # 跳过没有时间的任务
+                if not task_time or not task_time.strip():
+                    continue
                 task_dt = _dt.strptime(f"{task_date} {task_time}", "%Y-%m-%d %H:%M")
                 diff_minutes = (task_dt - now).total_seconds() / 60
                 if -30 <= diff_minutes <= 30:
