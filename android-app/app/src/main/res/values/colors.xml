@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#667eea</color>
+    <color name="primary_dark">#5a67d8</color>
+    <color name="accent">#764ba2</color>
+
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    <color name="divider">#e0e0e0</color>
+    <color name="background">#f5f5f5</color>
+    <color name="white">#ffffff</color>
+
+    <!-- Material 3 主题色 -->
+    <color name="md_theme_primary">#667eea</color>
+    <color name="md_theme_onPrimary">#ffffff</color>
+    <color name="md_theme_primaryContainer">#e8eaf6</color>
+    <color name="md_theme_onPrimaryContainer">#1a237e</color>
+    <color name="md_theme_secondary">#764ba2</color>
+    <color name="md_theme_onSecondary">#ffffff</color>
+    <color name="md_theme_surface">#fefbff</color>
+    <color name="md_theme_onSurface">#1c1b1f</color>
+    <color name="md_theme_background">#fefbff</color>
+    <color name="md_theme_onBackground">#1c1b1f</color>
+</resources>
