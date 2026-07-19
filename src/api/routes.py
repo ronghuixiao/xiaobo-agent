@@ -144,4 +144,78 @@ def create_api_router(
         total = (await count_cursor.fetchone())[0]
         return {"associations": [dict(r) for r in rows], "total": total}
 
+    # === Dashboard 图表数据 API ===
+
+    @router.get("/api/stats/conversations/daily")
+    async def get_conversations_daily(days: int = 30):
+        """按天统计对话数"""
+        since = (datetime.now() - timedelta(days=days)).isoformat()
+        cursor = await memory._db.execute(
+            """SELECT DATE(timestamp) as day, COUNT(*) as count
+               FROM conversations WHERE timestamp >= ? GROUP BY day ORDER BY day""",
+            (since,),
+        )
+        rows = await cursor.fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+    @router.get("/api/stats/facts/types")
+    async def get_facts_types():
+        """按类型统计事实"""
+        cursor = await memory._db.execute(
+            """SELECT fact_type, COUNT(*) as count FROM facts
+               WHERE is_active = 1 GROUP BY fact_type ORDER BY count DESC"""
+        )
+        rows = await cursor.fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+    @router.get("/api/stats/emotions/daily")
+    async def get_emotions_daily(days: int = 30):
+        """按天统计情绪"""
+        since = (datetime.now() - timedelta(days=days)).isoformat()
+        cursor = await memory._db.execute(
+            """SELECT DATE(timestamp) as day, emotion, COUNT(*) as count
+               FROM emotions WHERE timestamp >= ? GROUP BY day, emotion ORDER BY day""",
+            (since,),
+        )
+        rows = await cursor.fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+    @router.get("/api/stats/emotions/types")
+    async def get_emotions_types():
+        """按类型统计情绪"""
+        cursor = await memory._db.execute(
+            """SELECT emotion, COUNT(*) as count FROM emotions
+               GROUP BY emotion ORDER BY count DESC"""
+        )
+        rows = await cursor.fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+    @router.get("/api/stats/associations/graph")
+    async def get_associations_graph(limit: int = 30):
+        """获取关联网络图数据"""
+        import json as _json
+        cursor = await memory._db.execute(
+            "SELECT keyword, message_ids FROM associations ORDER BY last_updated DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        nodes = []
+        edges = []
+        keyword_set = set()
+        keyword_msg_map = {}
+        for row in rows:
+            kw = row["keyword"]
+            msg_ids = set(_json.loads(row["message_ids"])) if row["message_ids"] else set()
+            keyword_msg_map[kw] = msg_ids
+            if kw not in keyword_set:
+                keyword_set.add(kw)
+                nodes.append({"id": kw, "size": len(msg_ids)})
+        kw_list = list(keyword_msg_map.keys())
+        for i in range(len(kw_list)):
+            for j in range(i + 1, len(kw_list)):
+                shared = keyword_msg_map[kw_list[i]] & keyword_msg_map[kw_list[j]]
+                if shared:
+                    edges.append({"source": kw_list[i], "target": kw_list[j], "weight": len(shared)})
+        return {"nodes": nodes, "edges": edges}
+
     return router

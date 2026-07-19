@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>小柏 Agent - Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 :root {
   --bg: #f0f2f5;
@@ -62,7 +63,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 /* Modal */
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.5); z-index: 1000; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(4px); }
 .modal-overlay.active { display: flex; }
-.modal { background: var(--card); border-radius: var(--radius); width: 100%; max-width: 700px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0,0,0,.2); animation: modalIn .25s ease; }
+.modal { background: var(--card); border-radius: var(--radius); width: 100%; max-width: 700px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0,0,0,.2); animation: modalIn .25s ease; }
 @keyframes modalIn { from { opacity: 0; transform: scale(.95) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .modal-header h2 { font-size: 1.1em; font-weight: 600; display: flex; align-items: center; gap: 8px; }
@@ -73,6 +74,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .modal-tab { padding: 6px 16px; border-radius: 8px; font-size: .85em; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--text2); transition: all .2s; font-weight: 500; }
 .modal-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
 .modal-tab:hover:not(.active) { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+
+/* Chart styles */
+.chart-container { position: relative; width: 100%; margin-bottom: 20px; }
+.chart-container canvas { width: 100% !important; }
+.chart-section-title { font-size: .8em; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin: 16px 0 8px 0; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
+.network-canvas { width: 100%; border-radius: 12px; border: 1px solid var(--border); background: #fafbfc; display: block; }
 
 /* Detail list items */
 .detail-item { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 8px; transition: all .2s; background: #fafafa; }
@@ -117,7 +124,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .task-time { font-size: .75em; color: var(--text3); }
 .task-badge { font-size: .65em; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
 .badge-builtin { background: #e0e7ff; color: #4338ca; }
-.badge-user { background: #fce7f3; color: #9d174d; }
 .badge-done { background: #d1fae5; color: #065f46; }
 .badge-pending { background: #fef3c7; color: #92400e; }
 .badge-missed { background: #fee2e2; color: #991b1b; }
@@ -526,83 +532,527 @@ setInterval(function() {
   }).catch(function(){});
 }, 30000);
 
-// ========== Modal 弹窗系统 ==========
-var modalState = { type: '', page: 0, pageSize: 20, total: 0, tabs: [], activeTab: '' };
+// ========== Modal 弹窗系统 (with charts) ==========
+var modalState = { type: '', page: 0, pageSize: 20, total: 0, activeTab: 'chart', chartInstances: [], networkAnimFrame: null };
+
+var CHART_COLORS = ['#667eea','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
+
+var emotionEmojis = { happy:'😊', sad:'😢', angry:'😠', anxious:'😰', calm:'😌', excited:'🤩', tired:'😴', neutral:'😐', surprised:'😲', worried:'😟' };
 
 var modalConfig = {
   conversations: {
     title: '💬 对话记录',
-    tabs: [
-      { key: 'all', label: '全部', api: '/api/conversations' },
-      { key: 'user', label: '我说的', api: '/api/conversations', filter: 'user' },
-      { key: 'assistant', label: '小柏说的', api: '/api/conversations', filter: 'assistant' }
+    chartTab: { key: 'chart', label: '📊 图表' },
+    listTabs: [
+      { key: 'all', label: '📋 全部', api: '/api/conversations' },
+      { key: 'user', label: '👤 我说的', api: '/api/conversations', filter: 'user' },
+      { key: 'assistant', label: '🤖 小柏说的', api: '/api/conversations', filter: 'assistant' }
     ]
   },
   facts: {
     title: '🧠 记忆事实',
-    tabs: [
-      { key: 'all', label: '全部', api: '/api/facts' },
-      { key: 'preference', label: '偏好', api: '/api/facts?fact_type=preference' },
-      { key: 'identity', label: '身份', api: '/api/facts?fact_type=identity' },
-      { key: 'event', label: '事件', api: '/api/facts?fact_type=event' }
+    chartTab: { key: 'chart', label: '📊 图表' },
+    listTabs: [
+      { key: 'all', label: '📋 全部', api: '/api/facts' },
+      { key: 'preference', label: '🏷️ 偏好', api: '/api/facts?fact_type=preference' },
+      { key: 'identity', label: '👤 身份', api: '/api/facts?fact_type=identity' },
+      { key: 'event', label: '📅 事件', api: '/api/facts?fact_type=event' }
     ]
   },
   emotions: {
     title: '🎭 情绪记录',
-    tabs: [
-      { key: 'all', label: '全部', api: '/api/emotions' }
+    chartTab: { key: 'chart', label: '📊 图表' },
+    listTabs: [
+      { key: 'all', label: '📋 全部', api: '/api/emotions' }
     ]
   },
   associations: {
     title: '🔗 关联索引',
-    tabs: [
-      { key: 'all', label: '全部', api: '/api/associations' }
+    chartTab: { key: 'chart', label: '📊 图表' },
+    listTabs: [
+      { key: 'all', label: '📋 全部', api: '/api/associations' }
     ]
   }
 };
 
-var emotionEmojis = { happy:'😊', sad:'😢', angry:'😠', anxious:'😰', calm:'😌', excited:'🤩', tired:'😴', neutral:'😐', surprised:'😲', worried:'😟' };
+function destroyCharts() {
+  for (var i = 0; i < modalState.chartInstances.length; i++) {
+    if (modalState.chartInstances[i]) {
+      modalState.chartInstances[i].destroy();
+    }
+  }
+  modalState.chartInstances = [];
+  if (modalState.networkAnimFrame) {
+    cancelAnimationFrame(modalState.networkAnimFrame);
+    modalState.networkAnimFrame = null;
+  }
+}
 
 function openModal(type) {
   modalState.type = type;
   modalState.page = 0;
-  modalState.activeTab = modalConfig[type].tabs[0].key;
+  modalState.activeTab = 'chart';
+  destroyCharts();
   document.getElementById('modal-title').innerHTML = modalConfig[type].title;
-  // Render tabs
-  var tabsHtml = '';
-  var tabs = modalConfig[type].tabs;
-  for(var i=0; i<tabs.length; i++){
-    var active = tabs[i].key === modalState.activeTab ? ' active' : '';
-    tabsHtml += '<button class="modal-tab' + active + '" onclick="switchTab(\'' + tabs[i].key + '\')">' + tabs[i].label + '</button>';
-  }
-  document.getElementById('modal-tabs').innerHTML = tabsHtml;
+  renderModalTabs();
   document.getElementById('modal-overlay').classList.add('active');
   loadModalData();
 }
 
 function closeModal() {
+  destroyCharts();
   document.getElementById('modal-overlay').classList.remove('active');
+}
+
+function renderModalTabs() {
+  var config = modalConfig[modalState.type];
+  var tabsHtml = '';
+  // Chart tab
+  var chartActive = modalState.activeTab === 'chart' ? ' active' : '';
+  tabsHtml += '<button class="modal-tab' + chartActive + '" onclick="switchTab(\'chart\')">' + config.chartTab.label + '</button>';
+  // List tabs
+  for (var i = 0; i < config.listTabs.length; i++) {
+    var tab = config.listTabs[i];
+    var active = modalState.activeTab === tab.key ? ' active' : '';
+    tabsHtml += '<button class="modal-tab' + active + '" onclick="switchTab(\'' + tab.key + '\')">' + tab.label + '</button>';
+  }
+  document.getElementById('modal-tabs').innerHTML = tabsHtml;
 }
 
 function switchTab(key) {
   modalState.activeTab = key;
   modalState.page = 0;
-  var tabs = modalConfig[modalState.type].tabs;
-  var btns = document.querySelectorAll('.modal-tab');
-  for(var i=0; i<tabs.length; i++){
-    btns[i].className = 'modal-tab' + (tabs[i].key === key ? ' active' : '');
-  }
+  destroyCharts();
+  renderModalTabs();
   loadModalData();
 }
 
 function loadModalData() {
   var body = document.getElementById('modal-body');
   var footer = document.getElementById('modal-footer');
-  body.innerHTML = '<div class="detail-loading">加载中</div>';
   footer.innerHTML = '';
 
+  if (modalState.activeTab === 'chart') {
+    body.innerHTML = '<div class="detail-loading">加载图表数据</div>';
+    loadChartView();
+    return;
+  }
+
+  body.innerHTML = '<div class="detail-loading">加载中</div>';
+  loadListView();
+}
+
+// ========== Chart Views ==========
+
+function loadChartView() {
+  var type = modalState.type;
+  if (type === 'conversations') loadConversationsChart();
+  else if (type === 'facts') loadFactsChart();
+  else if (type === 'emotions') loadEmotionsChart();
+  else if (type === 'associations') loadAssociationsChart();
+}
+
+function loadConversationsChart() {
+  var body = document.getElementById('modal-body');
+  Promise.all([
+    fetch('/api/stats/conversations/daily?days=30&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {data:[]}}),
+    fetch('/api/conversations?limit=50&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {messages:[],total:0}})
+  ]).then(function(results) {
+    var dailyData = results[0].data || [];
+    var convData = results[1];
+
+    var html = '';
+    html += '<div class="chart-section-title">📈 每日对话趋势</div>';
+    html += '<div class="chart-container"><canvas id="chart-conv-daily" height="250"></canvas></div>';
+    html += '<div class="chart-section-title">📋 最近对话</div>';
+    if (convData.messages && convData.messages.length > 0) {
+      for (var i = 0; i < convData.messages.length; i++) {
+        html += renderDetailItem(convData.messages[i], 'conversations');
+      }
+    } else {
+      html += '<div class="detail-empty">暂无对话记录</div>';
+    }
+    body.innerHTML = html;
+
+    // Draw line chart
+    var labels = dailyData.map(function(d){ return d.day.substring(5); });
+    var values = dailyData.map(function(d){ return d.count; });
+    var ctx = document.getElementById('chart-conv-daily').getContext('2d');
+    var chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: '对话数',
+          data: values,
+          borderColor: '#667eea',
+          backgroundColor: 'rgba(102,126,234,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointBackgroundColor: '#667eea',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: '#f1f5f9' } },
+          x: { grid: { display: false }, ticks: { maxRotation: 45, font: { size: 11 } } }
+        }
+      }
+    });
+    modalState.chartInstances.push(chart);
+  });
+}
+
+function loadFactsChart() {
+  var body = document.getElementById('modal-body');
+  Promise.all([
+    fetch('/api/stats/facts/types?_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {data:[]}}),
+    fetch('/api/facts?limit=50&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {facts:[],total:0}})
+  ]).then(function(results) {
+    var typesData = results[0].data || [];
+    var factsData = results[1];
+
+    var html = '';
+    html += '<div class="chart-section-title">🍩 记忆类型分布</div>';
+    html += '<div class="chart-container" style="max-width:400px;margin:0 auto 20px"><canvas id="chart-facts-types" height="300"></canvas></div>';
+    html += '<div class="chart-section-title">📋 全部记忆</div>';
+    if (factsData.facts && factsData.facts.length > 0) {
+      for (var i = 0; i < factsData.facts.length; i++) {
+        html += renderDetailItem(factsData.facts[i], 'facts');
+      }
+    } else {
+      html += '<div class="detail-empty">暂无记忆</div>';
+    }
+    body.innerHTML = html;
+
+    // Draw doughnut chart
+    var typeLabels = { preference:'偏好', identity:'身份', event:'事件', other:'其他' };
+    var labels = typesData.map(function(d){ return typeLabels[d.fact_type] || d.fact_type; });
+    var values = typesData.map(function(d){ return d.count; });
+    var colors = CHART_COLORS.slice(0, labels.length);
+    var ctx = document.getElementById('chart-facts-types').getContext('2d');
+    var chart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: values,
+          backgroundColor: colors,
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { padding: 16, font: { size: 13 } } }
+        },
+        cutout: '55%'
+      }
+    });
+    modalState.chartInstances.push(chart);
+  });
+}
+
+function loadEmotionsChart() {
+  var body = document.getElementById('modal-body');
+  Promise.all([
+    fetch('/api/stats/emotions/types?_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {data:[]}}),
+    fetch('/api/stats/emotions/daily?days=30&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {data:[]}}),
+    fetch('/api/emotions?limit=50&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {emotions:[],total:0}})
+  ]).then(function(results) {
+    var typesData = results[0].data || [];
+    var dailyData = results[1].data || [];
+    var emotionsData = results[2];
+
+    var html = '';
+    html += '<div class="chart-section-title">📊 情绪类型分布</div>';
+    html += '<div class="chart-container" style="max-width:400px;margin:0 auto 20px"><canvas id="chart-emo-types" height="300"></canvas></div>';
+    html += '<div class="chart-section-title">📈 每日情绪趋势</div>';
+    html += '<div class="chart-container"><canvas id="chart-emo-daily" height="250"></canvas></div>';
+    html += '<div class="chart-section-title">📋 全部情绪记录</div>';
+    if (emotionsData.emotions && emotionsData.emotions.length > 0) {
+      for (var i = 0; i < emotionsData.emotions.length; i++) {
+        html += renderDetailItem(emotionsData.emotions[i], 'emotions');
+      }
+    } else {
+      html += '<div class="detail-empty">暂无情绪记录</div>';
+    }
+    body.innerHTML = html;
+
+    // Bar chart - emotion type distribution
+    var barLabels = typesData.map(function(d){ return (emotionEmojis[d.emotion]||'') + ' ' + d.emotion; });
+    var barValues = typesData.map(function(d){ return d.count; });
+    var barColors = CHART_COLORS.slice(0, barLabels.length);
+    var ctx1 = document.getElementById('chart-emo-types').getContext('2d');
+    var chart1 = new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels: barLabels,
+        datasets: [{
+          label: '次数',
+          data: barValues,
+          backgroundColor: barColors,
+          borderRadius: 6,
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: '#f1f5f9' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+    modalState.chartInstances.push(chart1);
+
+    // Line chart - daily emotion trends
+    // Group daily data by emotion
+    var emotionNames = [];
+    var emotionMap = {};
+    for (var i = 0; i < dailyData.length; i++) {
+      var e = dailyData[i].emotion;
+      if (!emotionMap[e]) { emotionMap[e] = {}; emotionNames.push(e); }
+      emotionMap[e][dailyData[i].day] = dailyData[i].count;
+    }
+    // Collect all unique days
+    var daysSet = {};
+    for (var i = 0; i < dailyData.length; i++) { daysSet[dailyData[i].day] = true; }
+    var days = Object.keys(daysSet).sort();
+    var lineLabels = days.map(function(d){ return d.substring(5); });
+    var datasets = [];
+    for (var e = 0; e < emotionNames.length; e++) {
+      var emo = emotionNames[e];
+      var color = CHART_COLORS[e % CHART_COLORS.length];
+      datasets.push({
+        label: (emotionEmojis[emo]||'') + ' ' + emo,
+        data: days.map(function(d){ return emotionMap[emo][d] || 0; }),
+        borderColor: color,
+        backgroundColor: color + '20',
+        fill: false,
+        tension: 0.3,
+        pointRadius: 2,
+        borderWidth: 2
+      });
+    }
+    var ctx2 = document.getElementById('chart-emo-daily').getContext('2d');
+    var chart2 = new Chart(ctx2, {
+      type: 'line',
+      data: { labels: lineLabels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { padding: 12, font: { size: 11 } } } },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: '#f1f5f9' } },
+          x: { grid: { display: false }, ticks: { maxRotation: 45, font: { size: 10 } } }
+        }
+      }
+    });
+    modalState.chartInstances.push(chart2);
+  });
+}
+
+function loadAssociationsChart() {
+  var body = document.getElementById('modal-body');
+  Promise.all([
+    fetch('/api/stats/associations/graph?limit=30&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {nodes:[],edges:[]}}),
+    fetch('/api/associations?limit=50&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {associations:[],total:0}})
+  ]).then(function(results) {
+    var graphData = results[0];
+    var assocData = results[1];
+
+    var html = '';
+    html += '<div class="chart-section-title">🕸️ 关联网络图</div>';
+    html += '<div style="margin-bottom:20px"><canvas id="network-canvas" class="network-canvas" height="400"></canvas></div>';
+    html += '<div class="chart-section-title">📋 全部关联</div>';
+    if (assocData.associations && assocData.associations.length > 0) {
+      for (var i = 0; i < assocData.associations.length; i++) {
+        html += renderDetailItem(assocData.associations[i], 'associations');
+      }
+    } else {
+      html += '<div class="detail-empty">暂无关联数据</div>';
+    }
+    body.innerHTML = html;
+
+    // Draw force-directed network graph
+    renderForceGraph(graphData);
+  });
+}
+
+function renderForceGraph(graphData) {
+  var canvas = document.getElementById('network-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = 400;
+
+  var nodes = graphData.nodes || [];
+  var edges = graphData.edges || [];
+
+  if (nodes.length === 0) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无关联数据', canvas.width / 2, canvas.height / 2);
+    return;
+  }
+
+  var W = canvas.width;
+  var H = canvas.height;
+  var cx = W / 2;
+  var cy = H / 2;
+
+  // Find max size for scaling
+  var maxSize = 1;
+  for (var i = 0; i < nodes.length; i++) {
+    if (nodes[i].size > maxSize) maxSize = nodes[i].size;
+  }
+
+  // Initialize positions randomly around center
+  var pos = {};
+  for (var i = 0; i < nodes.length; i++) {
+    pos[nodes[i].id] = {
+      x: cx + (Math.random() - 0.5) * W * 0.6,
+      y: cy + (Math.random() - 0.5) * H * 0.6,
+      vx: 0,
+      vy: 0,
+      size: nodes[i].size || 1
+    };
+  }
+
+  // Build edge index
+  var nodeSet = {};
+  for (var i = 0; i < nodes.length; i++) nodeSet[nodes[i].id] = true;
+
+  // Force-directed simulation (200 iterations)
+  var repulsion = 2000;
+  var attraction = 0.01;
+  var centering = 0.005;
+  var damping = 0.9;
+  var maxWeight = 1;
+  for (var i = 0; i < edges.length; i++) {
+    if (edges[i].weight > maxWeight) maxWeight = edges[i].weight;
+  }
+
+  for (var iter = 0; iter < 200; iter++) {
+    // Repulsion between all pairs
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var a = pos[nodes[i].id];
+        var b = pos[nodes[j].id];
+        var dx = a.x - b.x;
+        var dy = a.y - b.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        var force = repulsion / (dist * dist);
+        var fx = (dx / dist) * force;
+        var fy = (dy / dist) * force;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
+    }
+    // Attraction along edges
+    for (var i = 0; i < edges.length; i++) {
+      var e = edges[i];
+      if (!pos[e.source] || !pos[e.target]) continue;
+      var a = pos[e.source];
+      var b = pos[e.target];
+      var dx = b.x - a.x;
+      var dy = b.y - a.y;
+      var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      var w = (e.weight || 1) / maxWeight;
+      var force = dist * attraction * w;
+      var fx = (dx / dist) * force;
+      var fy = (dy / dist) * force;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    }
+    // Centering force
+    for (var i = 0; i < nodes.length; i++) {
+      var a = pos[nodes[i].id];
+      a.vx += (cx - a.x) * centering;
+      a.vy += (cy - a.y) * centering;
+    }
+    // Apply velocities
+    for (var i = 0; i < nodes.length; i++) {
+      var a = pos[nodes[i].id];
+      a.vx *= damping;
+      a.vy *= damping;
+      a.x += a.vx;
+      a.y += a.vy;
+      // Keep within bounds
+      var r = 10 + (a.size / maxSize) * 20;
+      a.x = Math.max(r, Math.min(W - r, a.x));
+      a.y = Math.max(r, Math.min(H - r, a.y));
+    }
+  }
+
+  // Render
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#fafbfc';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw edges
+  for (var i = 0; i < edges.length; i++) {
+    var e = edges[i];
+    if (!pos[e.source] || !pos[e.target]) continue;
+    var a = pos[e.source];
+    var b = pos[e.target];
+    var w = (e.weight || 1) / maxWeight;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = 'rgba(102,126,234,' + (0.15 + w * 0.4) + ')';
+    ctx.lineWidth = 1 + w * 3;
+    ctx.stroke();
+  }
+
+  // Draw nodes
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    var p = pos[n.id];
+    if (!p) continue;
+    var r = 8 + (p.size / maxSize) * 22;
+    var color = CHART_COLORS[i % CHART_COLORS.length];
+
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = '#1e293b';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    var label = n.id.length > 10 ? n.id.substring(0, 10) + '…' : n.id;
+    ctx.fillText(label, p.x, p.y + r + 4);
+  }
+}
+
+// ========== List Views ==========
+
+function loadListView() {
   var config = modalConfig[modalState.type];
-  var tab = config.tabs.find(function(t){ return t.key === modalState.activeTab; });
+  var tab = config.listTabs.find(function(t){ return t.key === modalState.activeTab; });
+  if (!tab) {
+    // fallback: use first list tab
+    tab = config.listTabs[0];
+  }
   var url = tab.api + (tab.api.indexOf('?') >= 0 ? '&' : '?') + 'limit=' + modalState.pageSize + '&offset=' + (modalState.page * modalState.pageSize) + '&_=' + Date.now();
 
   fetch(url, { cache: 'no-store' }).then(function(r){return r.json()}).then(function(d){
@@ -621,16 +1071,16 @@ function loadModalData() {
     modalState.total = total;
 
     if(items.length === 0) {
-      body.innerHTML = '<div class="detail-empty">暂无数据</div>';
-      footer.innerHTML = '';
+      document.getElementById('modal-body').innerHTML = '<div class="detail-empty">暂无数据</div>';
+      document.getElementById('modal-footer').innerHTML = '';
       return;
     }
 
     var html = '';
     for(var i=0; i<items.length; i++){
-      html += renderDetailItem(items[i]);
+      html += renderDetailItem(items[i], modalState.type);
     }
-    body.innerHTML = html;
+    document.getElementById('modal-body').innerHTML = html;
 
     // Pagination
     var totalPages = Math.ceil(total / modalState.pageSize);
@@ -639,12 +1089,12 @@ function loadModalData() {
       fhtml += '<button class="page-btn" onclick="goPage(-1)"' + (modalState.page <= 0 ? ' disabled' : '') + '>上一页</button>';
       fhtml += '<span class="page-info">' + (modalState.page + 1) + ' / ' + totalPages + '（共 ' + total + ' 条）</span>';
       fhtml += '<button class="page-btn" onclick="goPage(1)"' + (modalState.page >= totalPages - 1 ? ' disabled' : '') + '>下一页</button>';
-      footer.innerHTML = fhtml;
+      document.getElementById('modal-footer').innerHTML = fhtml;
     } else {
-      footer.innerHTML = '<span class="page-info">共 ' + total + ' 条</span>';
+      document.getElementById('modal-footer').innerHTML = '<span class="page-info">共 ' + total + ' 条</span>';
     }
   }).catch(function(){
-    body.innerHTML = '<div class="detail-empty">加载失败</div>';
+    document.getElementById('modal-body').innerHTML = '<div class="detail-empty">加载失败</div>';
   });
 }
 
@@ -653,15 +1103,16 @@ function goPage(delta) {
   loadModalData();
 }
 
-function renderDetailItem(item) {
+function renderDetailItem(item, type) {
+  var t = type || modalState.type;
   var html = '<div class="detail-item">';
-  if(modalState.type === 'conversations') {
+  if(t === 'conversations') {
     var roleLabel = item.role === 'user' ? '👤 荣慧' : '🤖 小柏';
     var badgeClass = item.role === 'user' ? 'badge-user' : 'badge-assistant';
     var time = new Date(item.timestamp).toLocaleString('zh-CN');
     html += '<div class="meta"><span class="detail-badge ' + badgeClass + '">' + roleLabel + '</span><span>' + time + '</span></div>';
     html += '<div class="content">' + esc(item.content).substring(0, 200) + (item.content.length > 200 ? '...' : '') + '</div>';
-  } else if(modalState.type === 'facts') {
+  } else if(t === 'facts') {
     var typeMap = {preference:'🏷️ 偏好',identity:'👤 身份',event:'📅 事件',other:'📝 其他'};
     var typeClass = ['preference','identity','event'].indexOf(item.fact_type) >= 0 ? item.fact_type : 'other';
     var typeLabel = typeMap[item.fact_type] || item.fact_type;
@@ -670,14 +1121,14 @@ function renderDetailItem(item) {
     if(item.confidence < 1) html += '<span style="color:var(--warning)">置信度: ' + Math.round(item.confidence * 100) + '%</span>';
     html += '</div>';
     html += '<div class="content">' + esc(item.content) + '</div>';
-  } else if(modalState.type === 'emotions') {
+  } else if(t === 'emotions') {
     var emoji = emotionEmojis[item.emotion] || '❓';
     var time = new Date(item.timestamp).toLocaleString('zh-CN');
     var intensity = Math.round((item.intensity || 0.5) * 100);
     html += '<div class="meta"><span class="detail-badge badge-emotion">' + emoji + ' ' + item.emotion + '</span>';
     html += '<span>强度: ' + intensity + '%</span><span>' + time + '</span></div>';
     if(item.context) html += '<div class="content">' + esc(item.context) + '</div>';
-  } else if(modalState.type === 'associations') {
+  } else if(t === 'associations') {
     html += '<div class="meta"><span class="detail-badge badge-other">关联</span>';
     html += '<span>强度: ' + Math.round((item.strength || 0) * 100) + '%</span></div>';
     html += '<div class="content">' + esc(item.source_type || '') + ' → ' + esc(item.target_type || '') + '</div>';
