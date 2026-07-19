@@ -1129,9 +1129,16 @@ function renderDetailItem(item, type) {
     html += '<span>强度: ' + intensity + '%</span><span>' + time + '</span></div>';
     if(item.context) html += '<div class="content">' + esc(item.context) + '</div>';
   } else if(t === 'associations') {
-    html += '<div class="meta"><span class="detail-badge badge-other">关联</span>';
-    html += '<span>强度: ' + Math.round((item.strength || 0) * 100) + '%</span></div>';
-    html += '<div class="content">' + esc(item.source_type || '') + ' → ' + esc(item.target_type || '') + '</div>';
+    var msgCount = 0;
+    try { msgCount = JSON.parse(item.message_ids || '[]').length; } catch(e) {}
+    var factCount = 0;
+    try { factCount = JSON.parse(item.fact_ids || '[]').length; } catch(e) {}
+    var time = item.last_updated ? new Date(item.last_updated).toLocaleString('zh-CN') : '';
+    html += '<div class="meta"><span class="detail-badge badge-other">🔗 关键词</span>';
+    html += '<span>' + msgCount + ' 条对话</span>';
+    if(factCount > 0) html += '<span>' + factCount + ' 条事实</span>';
+    html += '<span>' + time + '</span></div>';
+    html += '<div class="content" style="font-weight:600;font-size:1em">' + esc(item.keyword) + '</div>';
   }
   html += '</div>';
   return html;
