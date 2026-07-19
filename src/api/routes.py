@@ -87,4 +87,61 @@ def create_api_router(
         count = await task_mgr.move_pending_tasks(from_date, to_date)
         return {"moved": count, "from": from_date, "to": to_date}
 
+    # === Dashboard 详情 API ===
+
+    @router.get("/api/facts")
+    async def get_facts(limit: int = 50, offset: int = 0, fact_type: str = ""):
+        """获取记忆事实列表"""
+        if fact_type:
+            cursor = await memory._db.execute(
+                "SELECT * FROM facts WHERE fact_type = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                (fact_type, limit, offset),
+            )
+        else:
+            cursor = await memory._db.execute(
+                "SELECT * FROM facts WHERE is_active = 1 ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            )
+        rows = await cursor.fetchall()
+        # 总数
+        count_cursor = await memory._db.execute("SELECT COUNT(*) FROM facts WHERE is_active = 1")
+        total = (await count_cursor.fetchone())[0]
+        return {"facts": [dict(r) for r in rows], "total": total}
+
+    @router.get("/api/conversations")
+    async def get_conversations(limit: int = 50, offset: int = 0):
+        """获取对话列表"""
+        cursor = await memory._db.execute(
+            "SELECT * FROM conversations ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+        count_cursor = await memory._db.execute("SELECT COUNT(*) FROM conversations")
+        total = (await count_cursor.fetchone())[0]
+        return {"messages": [dict(r) for r in rows], "total": total}
+
+    @router.get("/api/emotions")
+    async def get_emotions(limit: int = 50, offset: int = 0):
+        """获取情绪记录列表"""
+        cursor = await memory._db.execute(
+            "SELECT * FROM emotions ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+        count_cursor = await memory._db.execute("SELECT COUNT(*) FROM emotions")
+        total = (await count_cursor.fetchone())[0]
+        return {"emotions": [dict(r) for r in rows], "total": total}
+
+    @router.get("/api/associations")
+    async def get_associations(limit: int = 50, offset: int = 0):
+        """获取关联索引列表"""
+        cursor = await memory._db.execute(
+            "SELECT * FROM associations ORDER BY last_updated DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+        count_cursor = await memory._db.execute("SELECT COUNT(*) FROM associations")
+        total = (await count_cursor.fetchone())[0]
+        return {"associations": [dict(r) for r in rows], "total": total}
+
     return router

@@ -10,6 +10,7 @@
   --card: #ffffff;
   --primary: #667eea;
   --primary-light: #eef2ff;
+  --primary-dark: #5a67d8;
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -18,87 +19,90 @@
   --text3: #94a3b8;
   --border: #e2e8f0;
   --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
-  --shadow-lg: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,.12);
   --radius: 16px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+
+/* Header */
 .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .header h1 { font-size: 1.6em; font-weight: 700; }
 .header h1 span { background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.header .date { color: var(--text2); font-size: .9em; }
+.header .date { color: var(--text2); font-size: .9em; margin-top: 2px; }
 .header .status { display: flex; align-items: center; gap: 6px; font-size: .85em; color: var(--success); }
 .header .status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* Grid */
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 .grid-full { grid-column: 1 / -1; }
 @media(max-width:768px) { .grid { grid-template-columns: 1fr; } }
-.card { background: var(--card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+
+/* Card */
+.card { background: var(--card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); border: 1px solid var(--border); transition: box-shadow .2s; }
+.card:hover { box-shadow: var(--shadow-lg); }
 .card-title { font-size: 1em; font-weight: 600; color: var(--text); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
 .card-title .icon { font-size: 1.2em; }
-.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.stat { text-align: center; padding: 18px 10px; background: var(--primary-light); border-radius: 12px; transition: transform .2s; }
-.stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-.stat .num { font-size: 2em; font-weight: 800; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.stat .label { font-size: .8em; color: var(--text2); margin-top: 4px; }
-@media(max-width:600px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
-.timeline { position: relative; padding-left: 28px; }
-.timeline::before { content: ''; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: var(--border); }
-.timeline-item { position: relative; padding: 10px 0; }
-.timeline-item::before { content: ''; position: absolute; left: -22px; top: 14px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--primary); background: white; z-index: 1; }
-.timeline-item.done::before { background: var(--success); border-color: var(--success); }
-.timeline-item.active::before { background: var(--primary); border-color: var(--primary); animation: pulse 1.5s infinite; box-shadow: 0 0 0 4px rgba(102,126,234,.2); }
-.timeline-item .time { font-size: .75em; color: var(--text3); font-weight: 600; text-transform: uppercase; }
-.timeline-item .desc { font-size: .9em; color: var(--text); margin-top: 2px; }
-.timeline-item .tag { display: inline-block; font-size: .7em; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
-.tag-done { background: #d1fae5; color: #065f46; }
-.tag-active { background: #dbeafe; color: #1e40af; }
-.tag-pending { background: #f1f5f9; color: #475569; }
-.emotion-chart { display: flex; flex-direction: column; gap: 10px; }
-.emotion-row { display: flex; align-items: center; gap: 10px; }
-.emotion-emoji { font-size: 1.4em; width: 36px; text-align: center; }
-.emotion-bar-bg { flex: 1; height: 28px; background: #f1f5f9; border-radius: 14px; overflow: hidden; position: relative; }
-.emotion-bar-fill { height: 100%; border-radius: 14px; display: flex; align-items: center; padding-left: 10px; color: white; font-size: .8em; font-weight: 600; transition: width .8s ease; min-width: fit-content; }
-.emotion-count { font-size: .8em; color: var(--text3); width: 50px; text-align: right; }
-.message-list { max-height: 420px; overflow-y: auto; scrollbar-width: thin; }
-.message { padding: 14px; margin: 8px 0; border-radius: 12px; border-left: 3px solid transparent; }
-.message.user { background: #f8fafc; border-left-color: var(--primary); }
-.message.assistant { background: #f0fdf4; border-left-color: var(--success); }
-.message .role { font-weight: 600; font-size: .85em; display: flex; align-items: center; gap: 6px; }
-.message .role .name { color: var(--text); }
-.message .role .time { font-weight: 400; font-size: .8em; color: var(--text3); }
-.message .content { margin-top: 6px; font-size: .9em; line-height: 1.6; color: var(--text2); word-break: break-word; }
-.facts-list { display: flex; flex-direction: column; gap: 8px; }
-.fact-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #fafafa; border-radius: 10px; border: 1px solid var(--border); }
-.fact-type { font-size: .7em; padding: 2px 8px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
-.fact-type.preference { background: #dbeafe; color: #1e40af; }
-.fact-type.identity { background: #fce7f3; color: #9d174d; }
-.fact-type.event { background: #d1fae5; color: #065f46; }
-.fact-type.other { background: #f1f5f9; color: #475569; }
-.fact-content { font-size: .85em; color: var(--text2); line-height: 1.5; }
-.phone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.phone-app { padding: 10px; background: #fafafa; border-radius: 10px; text-align: center; border: 1px solid var(--border); }
-.phone-app .app-name { font-size: .85em; font-weight: 600; color: var(--text); }
-.phone-app .app-time { font-size: .75em; color: var(--text3); margin-top: 2px; }
-.phone-app .app-bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: 6px; overflow: hidden; }
-.phone-app .app-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--primary), #764ba2); }
-.empty { text-align: center; color: var(--text3); padding: 30px; font-size: .9em; }
-.loading { text-align: center; padding: 30px; }
-.loading::after { content: ''; display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; margin-left: 8px; vertical-align: middle; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.refresh-btn { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: .8em; color: var(--text2); cursor: pointer; transition: all .2s; }
-.refresh-btn:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
 
-/* Day selector styles */
+/* Stats - clickable cards */
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat { text-align: center; padding: 20px 10px; background: linear-gradient(135deg, #f8fafc, #f0f4ff); border-radius: 14px; transition: all .25s ease; cursor: pointer; border: 1px solid transparent; position: relative; overflow: hidden; }
+.stat::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--primary), #764ba2); opacity: 0; transition: opacity .25s; }
+.stat:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); border-color: var(--primary); }
+.stat:hover::before { opacity: 1; }
+.stat .icon-big { font-size: 1.6em; margin-bottom: 6px; }
+.stat .num { font-size: 2.2em; font-weight: 800; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.1; }
+.stat .label { font-size: .8em; color: var(--text2); margin-top: 6px; font-weight: 500; }
+.stat .hint { font-size: .65em; color: var(--primary); margin-top: 4px; opacity: 0; transition: opacity .25s; }
+.stat:hover .hint { opacity: 1; }
+@media(max-width:600px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.5); z-index: 1000; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(4px); }
+.modal-overlay.active { display: flex; }
+.modal { background: var(--card); border-radius: var(--radius); width: 100%; max-width: 700px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0,0,0,.2); animation: modalIn .25s ease; }
+@keyframes modalIn { from { opacity: 0; transform: scale(.95) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.modal-header h2 { font-size: 1.1em; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.modal-close { background: none; border: none; font-size: 1.4em; cursor: pointer; color: var(--text3); padding: 4px 8px; border-radius: 8px; transition: all .2s; }
+.modal-close:hover { background: #fee2e2; color: var(--danger); }
+.modal-body { padding: 20px 24px; overflow-y: auto; flex: 1; }
+.modal-tabs { display: flex; gap: 8px; padding: 12px 24px 0; flex-shrink: 0; }
+.modal-tab { padding: 6px 16px; border-radius: 8px; font-size: .85em; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--text2); transition: all .2s; font-weight: 500; }
+.modal-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+.modal-tab:hover:not(.active) { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+
+/* Detail list items */
+.detail-item { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 8px; transition: all .2s; background: #fafafa; }
+.detail-item:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(102,126,234,.1); }
+.detail-item .meta { font-size: .75em; color: var(--text3); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.detail-item .content { font-size: .9em; color: var(--text); line-height: 1.5; }
+.detail-badge { font-size: .7em; padding: 2px 8px; border-radius: 8px; font-weight: 600; }
+.badge-preference { background: #dbeafe; color: #1e40af; }
+.badge-identity { background: #fce7f3; color: #9d174d; }
+.badge-event { background: #d1fae5; color: #065f46; }
+.badge-other { background: #f1f5f9; color: #475569; }
+.badge-emotion { background: #fef3c7; color: #92400e; }
+.badge-user { background: #ede9fe; color: #5b21b6; }
+.badge-assistant { background: #d1fae5; color: #065f46; }
+.detail-empty { text-align: center; color: var(--text3); padding: 40px; font-size: .9em; }
+.detail-loading { text-align: center; padding: 40px; color: var(--text3); }
+.detail-loading::after { content: ''; display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; margin-left: 8px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.detail-footer { padding: 12px 24px; border-top: 1px solid var(--border); display: flex; justify-content: center; gap: 8px; flex-shrink: 0; }
+.page-btn { padding: 6px 14px; border-radius: 8px; font-size: .85em; cursor: pointer; border: 1px solid var(--border); background: white; color: var(--text2); transition: all .2s; }
+.page-btn:hover:not(:disabled) { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+.page-btn:disabled { opacity: .4; cursor: default; }
+.page-info { font-size: .8em; color: var(--text3); display: flex; align-items: center; }
+
+/* Tasks */
 .day-selector { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 14px; }
 .day-nav { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; font-size: 1.1em; cursor: pointer; color: var(--text2); transition: all .2s; line-height: 1; }
 .day-nav:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
 .day-nav:disabled { opacity: .3; cursor: default; }
 .day-label { font-weight: 600; font-size: .95em; color: var(--text); min-width: 140px; text-align: center; }
-.day-sublabel { font-size: .75em; color: var(--text3); font-weight: 400; }
-
-/* Task list styles */
 .task-section-title { font-size: .75em; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin: 12px 0 6px 0; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
 .task-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 6px; transition: all .2s; background: #fafafa; }
 .task-item:hover { border-color: var(--primary); box-shadow: var(--shadow); }
@@ -118,7 +122,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .badge-pending { background: #fef3c7; color: #92400e; }
 .badge-missed { background: #fee2e2; color: #991b1b; }
 
-/* Upcoming tasks section */
+/* Upcoming */
 .upcoming-list { display: flex; flex-direction: column; gap: 8px; }
 .upcoming-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: linear-gradient(135deg, #f8fafc, #f0f4ff); transition: all .2s; }
 .upcoming-item:hover { border-color: var(--primary); box-shadow: var(--shadow); }
@@ -130,6 +134,48 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .countdown-today { background: #fee2e2; color: #991b1b; }
 .countdown-tomorrow { background: #fef3c7; color: #92400e; }
 .countdown-later { background: #dbeafe; color: #1e40af; }
+
+/* Emotion chart */
+.emotion-chart { display: flex; flex-direction: column; gap: 10px; }
+.emotion-row { display: flex; align-items: center; gap: 10px; }
+.emotion-emoji { font-size: 1.4em; width: 36px; text-align: center; }
+.emotion-bar-bg { flex: 1; height: 28px; background: #f1f5f9; border-radius: 14px; overflow: hidden; position: relative; }
+.emotion-bar-fill { height: 100%; border-radius: 14px; display: flex; align-items: center; padding-left: 10px; color: white; font-size: .8em; font-weight: 600; transition: width .8s ease; min-width: fit-content; }
+.emotion-count { font-size: .8em; color: var(--text3); width: 50px; text-align: right; }
+
+/* Messages */
+.message-list { max-height: 420px; overflow-y: auto; scrollbar-width: thin; }
+.message { padding: 14px; margin: 8px 0; border-radius: 12px; border-left: 3px solid transparent; }
+.message.user { background: #f8fafc; border-left-color: var(--primary); }
+.message.assistant { background: #f0fdf4; border-left-color: var(--success); }
+.message .role { font-weight: 600; font-size: .85em; display: flex; align-items: center; gap: 6px; }
+.message .role .name { color: var(--text); }
+.message .role .time { font-weight: 400; font-size: .8em; color: var(--text3); }
+.message .content { margin-top: 6px; font-size: .9em; line-height: 1.6; color: var(--text2); word-break: break-word; }
+
+/* Facts */
+.facts-list { display: flex; flex-direction: column; gap: 8px; }
+.fact-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #fafafa; border-radius: 10px; border: 1px solid var(--border); }
+.fact-type { font-size: .7em; padding: 2px 8px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+.fact-type.preference { background: #dbeafe; color: #1e40af; }
+.fact-type.identity { background: #fce7f3; color: #9d174d; }
+.fact-type.event { background: #d1fae5; color: #065f46; }
+.fact-type.other { background: #f1f5f9; color: #475569; }
+.fact-content { font-size: .85em; color: var(--text2); line-height: 1.5; }
+
+/* Phone */
+.phone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.phone-app { padding: 10px; background: #fafafa; border-radius: 10px; text-align: center; border: 1px solid var(--border); }
+.phone-app .app-name { font-size: .85em; font-weight: 600; color: var(--text); }
+.phone-app .app-time { font-size: .75em; color: var(--text3); margin-top: 2px; }
+.phone-app .app-bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.phone-app .app-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--primary), #764ba2); }
+
+.empty { text-align: center; color: var(--text3); padding: 30px; font-size: .9em; }
+.loading { text-align: center; padding: 30px; }
+.loading::after { content: ''; display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; margin-left: 8px; vertical-align: middle; }
+.refresh-btn { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: .8em; color: var(--text2); cursor: pointer; transition: all .2s; }
+.refresh-btn:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
 </style>
 </head>
 <body>
@@ -145,12 +191,33 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
     </div>
   </div>
 
+  <!-- 统计卡片 - 可点击 -->
   <div class="card" style="margin-bottom:16px">
     <div class="stats-row" id="stats">
-      <div class="stat"><div class="num" id="s-conv">-</div><div class="label">对话总数</div></div>
-      <div class="stat"><div class="num" id="s-facts">-</div><div class="label">记忆事实</div></div>
-      <div class="stat"><div class="num" id="s-emo">-</div><div class="label">情绪记录</div></div>
-      <div class="stat"><div class="num" id="s-assoc">-</div><div class="label">关联索引</div></div>
+      <div class="stat" onclick="openModal('conversations')">
+        <div class="icon-big">💬</div>
+        <div class="num" id="s-conv">-</div>
+        <div class="label">对话总数</div>
+        <div class="hint">点击查看 →</div>
+      </div>
+      <div class="stat" onclick="openModal('facts')">
+        <div class="icon-big">🧠</div>
+        <div class="num" id="s-facts">-</div>
+        <div class="label">记忆事实</div>
+        <div class="hint">点击查看 →</div>
+      </div>
+      <div class="stat" onclick="openModal('emotions')">
+        <div class="icon-big">🎭</div>
+        <div class="num" id="s-emo">-</div>
+        <div class="label">情绪记录</div>
+        <div class="hint">点击查看 →</div>
+      </div>
+      <div class="stat" onclick="openModal('associations')">
+        <div class="icon-big">🔗</div>
+        <div class="num" id="s-assoc">-</div>
+        <div class="label">关联索引</div>
+        <div class="hint">点击查看 →</div>
+      </div>
     </div>
   </div>
 
@@ -170,10 +237,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
     </div>
   </div>
 
-    <div class="card grid-full">
-      <div class="card-title"><span class="icon">📌</span>即将到来的任务</div>
-      <div id="upcoming-tasks"><div class="loading">加载中</div></div>
-    </div>
+  <div class="card grid-full" style="margin-bottom:16px">
+    <div class="card-title"><span class="icon">📌</span>即将到来的任务</div>
+    <div id="upcoming-tasks"><div class="loading">加载中</div></div>
+  </div>
+
   <div class="grid">
     <div class="card">
       <div class="card-title"><span class="icon">🧠</span>记忆事实</div>
@@ -191,6 +259,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
   </div>
 </div>
 
+<!-- Modal 弹窗 -->
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">详情</h2>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-tabs" id="modal-tabs"></div>
+    <div class="modal-body" id="modal-body">
+      <div class="detail-loading">加载中</div>
+    </div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
 <script>
 var now = new Date();
 var weekdays = ['日','一','二','三','四','五','六'];
@@ -199,28 +282,19 @@ var greeting = h < 6 ? '凌晨好' : h < 9 ? '早上好' : h < 12 ? '上午好' 
 document.getElementById('current-date').textContent = greeting + ' | ' + (now.getMonth()+1) + '月' + now.getDate() + '日 星期' + weekdays[now.getDay()];
 
 function esc(s) { return s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
-
 function formatDate(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
-
 function formatDayLabel(d) {
   var today = new Date();
   var todayStr = formatDate(today);
   var dStr = formatDate(d);
-  // Yesterday
-  var yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  var yesterdayStr = formatDate(yesterday);
-  // Tomorrow
-  var tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  var tomorrowStr = formatDate(tomorrow);
-
+  var yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  var tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
   var dayOfWeek = ' 周' + weekdays[d.getDay()];
   if (dStr === todayStr) return '今天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
-  if (dStr === yesterdayStr) return '昨天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
-  if (dStr === tomorrowStr) return '明天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
+  if (dStr === formatDate(yesterday)) return '昨天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
+  if (dStr === formatDate(tomorrow)) return '明天 (' + (d.getMonth()+1) + '月' + d.getDate() + '日)' + dayOfWeek;
   return (d.getMonth()+1) + '月' + d.getDate() + '日' + dayOfWeek;
 }
 
@@ -243,11 +317,8 @@ function toggleTask(taskId, currentStatus, btn) {
 function loadTasks() {
   var dateStr = formatDate(currentDay);
   document.getElementById('day-label').innerHTML = formatDayLabel(currentDay);
-  // Disable next button if today or future
-  var today = new Date();
-  today.setHours(0,0,0,0);
+  var today = new Date(); today.setHours(0,0,0,0);
   document.getElementById('day-next').disabled = (currentDay >= today);
-
   var nowTime = now.getHours() * 60 + now.getMinutes();
   var isToday = (formatDate(currentDay) === formatDate(now));
 
@@ -259,33 +330,20 @@ function loadTasks() {
         document.getElementById('task-list').innerHTML = '<div class="empty">暂无任务</div>';
         return;
       }
-
-      var builtinTasks = [];
-      var userTasks = [];
-      tasks.forEach(function(t) {
-        if (t.type === 'builtin') builtinTasks.push(t);
-        else userTasks.push(t);
-      });
-
+      var builtinTasks = [], userTasks = [];
+      tasks.forEach(function(t) { if (t.type === 'builtin') builtinTasks.push(t); else userTasks.push(t); });
       var html = '';
-
-      // Built-in recurring tasks
       if (builtinTasks.length > 0) {
         html += '<div class="task-section-title">🔧 系统任务</div>';
         builtinTasks.forEach(function(t) { html += renderTask(t, isToday, nowTime); });
       }
-
-      // User tasks
       if (userTasks.length > 0) {
         html += '<div class="task-section-title">👤 我的任务</div>';
         userTasks.forEach(function(t) { html += renderTask(t, isToday, nowTime); });
       }
-
       document.getElementById('task-list').innerHTML = html;
     })
-    .catch(function() {
-      document.getElementById('task-list').innerHTML = '<div class="empty">加载失败</div>';
-    });
+    .catch(function() { document.getElementById('task-list').innerHTML = '<div class="empty">加载失败</div>'; });
 }
 
 function renderTask(t, isToday, nowTime) {
@@ -293,40 +351,26 @@ function renderTask(t, isToday, nowTime) {
   var taskClass = isDone ? 'done' : '';
   var checkClass = isDone ? 'checked' : '';
   var checkIcon = isDone ? '✓' : '';
-
-  // Check if missed (past time, not done)
-  var missedBadge = '';
-  var missedClass = '';
+  var missedBadge = '', missedClass = '';
   if (!isDone && isToday && t.time) {
     var parts = t.time.split(':');
     var tMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-    if (tMin < nowTime - 60) { // more than 1 hour past
-      missedClass = 'missed';
-      missedBadge = '<span class="task-badge badge-missed">已过</span>';
-    }
+    if (tMin < nowTime - 60) { missedClass = 'missed'; missedBadge = '<span class="task-badge badge-missed">已过</span>'; }
   }
-
   var statusBadge = '';
   if (isDone) statusBadge = '<span class="task-badge badge-done">✓ 完成</span>';
   else if (missedClass) statusBadge = missedBadge;
   else if (t.time) statusBadge = '<span class="task-badge badge-pending">待做</span>';
-
   var typeBadge = t.type === 'builtin' ? '<span class="task-badge badge-builtin">系统</span>' : '<span class="task-badge badge-user">个人</span>';
   var timeDisplay = t.time ? '<span class="task-time">🕐 ' + esc(t.time) + '</span>' : '';
-
   var html = '<div class="task-item ' + taskClass + ' ' + missedClass + '">';
   html += '<div class="task-checkbox ' + checkClass + '" onclick="toggleTask(\'' + t.id + '\', \'' + t.status + '\', this)">' + checkIcon + '</div>';
-  html += '<div class="task-info">';
-  html += '<div class="task-title">' + esc(t.title) + '</div>';
+  html += '<div class="task-info"><div class="task-title">' + esc(t.title) + '</div>';
   if (timeDisplay) html += timeDisplay;
-  html += '</div>';
-  html += typeBadge;
-  html += statusBadge;
-  html += '</div>';
+  html += '</div>' + typeBadge + statusBadge + '</div>';
   return html;
 }
 
-// Initialize day
 loadTasks();
 
 // Stats
@@ -359,35 +403,28 @@ fetch('/api/emotions/summary?days=7&_=' + Date.now(), { cache: 'no-store' }).the
   var colors = ['#667eea','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4'];
   var html = '<div class="emotion-chart">';
   for(var j=0; j<items.length; j++){
-    var it = items[j];
-    var bg = colors[j % colors.length];
-    html += '<div class="emotion-row">';
-    html += '<div class="emotion-emoji">' + it.emoji + '</div>';
+    var it = items[j]; var bg = colors[j % colors.length];
+    html += '<div class="emotion-row"><div class="emotion-emoji">' + it.emoji + '</div>';
     html += '<div class="emotion-bar-bg"><div class="emotion-bar-fill" style="width:' + it.pct + '%;background:' + bg + '">' + it.name + '</div></div>';
-    html += '<div class="emotion-count">' + it.count + '次</div>';
-    html += '</div>';
+    html += '<div class="emotion-count">' + it.count + '次</div></div>';
   }
   html += '</div>';
   document.getElementById('emotions').innerHTML = html;
 }).catch(function(){ document.getElementById('emotions').innerHTML = '<div class="empty">暂无情绪数据</div>'; });
 
-// Facts
-fetch('/api/chat/history?limit=10').then(function(r){return r.json()}).then(function(d){
-  if(!d.messages || d.messages.length===0) { document.getElementById('facts').innerHTML = '<div class="empty">暂无记忆</div>'; return; }
+// Facts (sidebar preview)
+fetch('/api/facts?limit=5').then(function(r){return r.json()}).then(function(d){
+  if(!d.facts || d.facts.length===0) { document.getElementById('facts').innerHTML = '<div class="empty">暂无记忆</div>'; return; }
   var html = '<div class="facts-list">';
-  var msgs = d.messages.slice(0,6);
-  for(var i=0; i<msgs.length; i++){
-    var m = msgs[i];
-    var cls = m.role==='user' ? 'event' : 'other';
-    var label = m.role==='user' ? '对话' : '回复';
-    var content = esc(m.content).substring(0,120);
-    if(m.content.length > 120) content += '...';
-    html += '<div class="fact-item">';
-    html += '<span class="fact-type ' + cls + '">' + label + '</span>';
-    html += '<div class="fact-content">' + content + '</div>';
-    html += '</div>';
+  for(var i=0; i<d.facts.length; i++){
+    var f = d.facts[i];
+    var typeClass = ['preference','identity','event'].indexOf(f.fact_type)>=0 ? f.fact_type : 'other';
+    var typeLabel = {preference:'偏好',identity:'身份',event:'事件',other:'其他'}[f.fact_type]||f.fact_type;
+    html += '<div class="fact-item"><span class="fact-type ' + typeClass + '">' + typeLabel + '</span>';
+    html += '<div class="fact-content">' + esc(f.content).substring(0,80) + (f.content.length>80?'...':'') + '</div></div>';
   }
   html += '</div>';
+  if(d.total > 5) html += '<div style="text-align:center;margin-top:10px"><a href="javascript:openModal(\'facts\')" style="color:var(--primary);font-size:.85em;text-decoration:none;font-weight:500">查看全部 ' + d.total + ' 条 →</a></div>';
   document.getElementById('facts').innerHTML = html;
 }).catch(function(){ document.getElementById('facts').innerHTML = '<div class="empty">暂无记忆</div>'; });
 
@@ -406,18 +443,16 @@ fetch('/api/phone/summary').then(function(r){return r.json()}).then(function(d){
       var app = d.app_breakdown[i];
       var m = Math.floor(app.duration/60);
       var pct = maxDur>0 ? Math.round(app.duration/maxDur*100) : 0;
-      html += '<div class="phone-app">';
-      html += '<div class="app-name">' + esc(app.name) + '</div>';
+      html += '<div class="phone-app"><div class="app-name">' + esc(app.name) + '</div>';
       html += '<div class="app-time">' + m + '分钟</div>';
-      html += '<div class="app-bar"><div class="app-bar-fill" style="width:' + pct + '%"></div></div>';
-      html += '</div>';
+      html += '<div class="app-bar"><div class="app-bar-fill" style="width:' + pct + '%"></div></div></div>';
     }
     html += '</div>';
   }
   document.getElementById('phone').innerHTML = html;
 }).catch(function(){});
 
-// Messages
+// Messages (sidebar preview)
 fetch('/api/chat/history?limit=20').then(function(r){return r.json()}).then(function(d){
   var el = document.getElementById('messages');
   if(!d.messages || d.messages.length===0) { el.innerHTML = '<div class="empty">暂无对话记录</div>'; return; }
@@ -431,8 +466,7 @@ fetch('/api/chat/history?limit=20').then(function(r){return r.json()}).then(func
     var c = esc(m.content).split('\n').join('<br>');
     html += '<div class="message ' + cls + '">';
     html += '<div class="role"><span class="name">' + name + '</span><span class="time">' + time + '</span></div>';
-    html += '<div class="content">' + c + '</div>';
-    html += '</div>';
+    html += '<div class="content">' + c + '</div></div>';
   }
   el.innerHTML = html;
 }).catch(function(){ document.getElementById('messages').innerHTML = '<div class="empty">加载失败</div>'; });
@@ -442,63 +476,48 @@ fetch('/api/tasks/upcoming?_=' + Date.now(), { cache: 'no-store' }).then(functio
   var el = document.getElementById('upcoming-tasks');
   var tasks = d.tasks || [];
   if(tasks.length === 0) { el.innerHTML = '<div class="empty">暂无待办任务</div>'; return; }
-
-  var now = new Date();
-  var today = formatDate(now);
-  var tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  var now2 = new Date();
+  var todayStr = formatDate(now2);
+  var tomorrow = new Date(now2); tomorrow.setDate(tomorrow.getDate() + 1);
   var tomorrowStr = formatDate(tomorrow);
-
   var html = '<div class="upcoming-list">';
   for(var i = 0; i < tasks.length; i++){
     var t = tasks[i];
     var taskDate = t.date;
-    var countdownClass = '';
-    var countdownText = '';
-
-    if(taskDate === today) {
+    var countdownClass = '', countdownText = '';
+    if(taskDate === todayStr) {
       countdownClass = 'countdown-today';
       if(t.time) {
         var parts = t.time.split(':');
         var taskMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-        var nowMin = now.getHours() * 60 + now.getMinutes();
+        var nowMin = now2.getHours() * 60 + now2.getMinutes();
         var diff = taskMin - nowMin;
         if(diff > 0) countdownText = diff + '分钟后';
         else if(diff > -60) countdownText = '已开始';
         else countdownText = '已过' + Math.abs(diff) + '分钟';
-      } else {
-        countdownText = '今天';
-      }
+      } else { countdownText = '今天'; }
     } else if(taskDate === tomorrowStr) {
-      countdownClass = 'countdown-tomorrow';
-      countdownText = '明天';
+      countdownClass = 'countdown-tomorrow'; countdownText = '明天';
     } else {
       countdownClass = 'countdown-later';
-      var d = new Date(taskDate);
-      var daysDiff = Math.ceil((d - now) / (1000*60*60*24));
+      var d2 = new Date(taskDate);
+      var daysDiff = Math.ceil((d2 - now2) / (1000*60*60*24));
       countdownText = daysDiff + '天后';
     }
-
     var dateDisplay = taskDate.substring(5).replace('-', '/');
-    var timeDisplay = t.time ? ' 🕐 ' + esc(t.time) : '';
-
     html += '<div class="upcoming-item">';
     html += '<div class="upcoming-date">' + dateDisplay + '</div>';
-    html += '<div class="upcoming-info">';
-    html += '<div class="upcoming-title">' + esc(t.title) + '</div>';
+    html += '<div class="upcoming-info"><div class="upcoming-title">' + esc(t.title) + '</div>';
     if(t.time) html += '<div class="upcoming-time">计划时间: ' + esc(t.time) + '</div>';
-    html += '</div>';
-    html += '<div class="upcoming-countdown ' + countdownClass + '">' + countdownText + '</div>';
-    html += '</div>';
+    html += '</div><div class="upcoming-countdown ' + countdownClass + '">' + countdownText + '</div></div>';
   }
   html += '</div>';
   el.innerHTML = html;
 }).catch(function(){ document.getElementById('upcoming-tasks').innerHTML = '<div class="empty">加载失败</div>'; });
 
-// Auto-refresh every 30 seconds
+// Auto-refresh
 setInterval(function() {
   loadTasks();
-  // Also refresh stats
   fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
     document.getElementById('s-conv').textContent = d.conversations||0;
     document.getElementById('s-facts').textContent = d.facts||0;
@@ -506,6 +525,169 @@ setInterval(function() {
     document.getElementById('s-assoc').textContent = d.associations||0;
   }).catch(function(){});
 }, 30000);
+
+// ========== Modal 弹窗系统 ==========
+var modalState = { type: '', page: 0, pageSize: 20, total: 0, tabs: [], activeTab: '' };
+
+var modalConfig = {
+  conversations: {
+    title: '💬 对话记录',
+    tabs: [
+      { key: 'all', label: '全部', api: '/api/conversations' },
+      { key: 'user', label: '我说的', api: '/api/conversations', filter: 'user' },
+      { key: 'assistant', label: '小柏说的', api: '/api/conversations', filter: 'assistant' }
+    ]
+  },
+  facts: {
+    title: '🧠 记忆事实',
+    tabs: [
+      { key: 'all', label: '全部', api: '/api/facts' },
+      { key: 'preference', label: '偏好', api: '/api/facts?fact_type=preference' },
+      { key: 'identity', label: '身份', api: '/api/facts?fact_type=identity' },
+      { key: 'event', label: '事件', api: '/api/facts?fact_type=event' }
+    ]
+  },
+  emotions: {
+    title: '🎭 情绪记录',
+    tabs: [
+      { key: 'all', label: '全部', api: '/api/emotions' }
+    ]
+  },
+  associations: {
+    title: '🔗 关联索引',
+    tabs: [
+      { key: 'all', label: '全部', api: '/api/associations' }
+    ]
+  }
+};
+
+var emotionEmojis = { happy:'😊', sad:'😢', angry:'😠', anxious:'😰', calm:'😌', excited:'🤩', tired:'😴', neutral:'😐', surprised:'😲', worried:'😟' };
+
+function openModal(type) {
+  modalState.type = type;
+  modalState.page = 0;
+  modalState.activeTab = modalConfig[type].tabs[0].key;
+  document.getElementById('modal-title').innerHTML = modalConfig[type].title;
+  // Render tabs
+  var tabsHtml = '';
+  var tabs = modalConfig[type].tabs;
+  for(var i=0; i<tabs.length; i++){
+    var active = tabs[i].key === modalState.activeTab ? ' active' : '';
+    tabsHtml += '<button class="modal-tab' + active + '" onclick="switchTab(\'' + tabs[i].key + '\')">' + tabs[i].label + '</button>';
+  }
+  document.getElementById('modal-tabs').innerHTML = tabsHtml;
+  document.getElementById('modal-overlay').classList.add('active');
+  loadModalData();
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+function switchTab(key) {
+  modalState.activeTab = key;
+  modalState.page = 0;
+  var tabs = modalConfig[modalState.type].tabs;
+  var btns = document.querySelectorAll('.modal-tab');
+  for(var i=0; i<tabs.length; i++){
+    btns[i].className = 'modal-tab' + (tabs[i].key === key ? ' active' : '');
+  }
+  loadModalData();
+}
+
+function loadModalData() {
+  var body = document.getElementById('modal-body');
+  var footer = document.getElementById('modal-footer');
+  body.innerHTML = '<div class="detail-loading">加载中</div>';
+  footer.innerHTML = '';
+
+  var config = modalConfig[modalState.type];
+  var tab = config.tabs.find(function(t){ return t.key === modalState.activeTab; });
+  var url = tab.api + (tab.api.indexOf('?') >= 0 ? '&' : '?') + 'limit=' + modalState.pageSize + '&offset=' + (modalState.page * modalState.pageSize) + '&_=' + Date.now();
+
+  fetch(url, { cache: 'no-store' }).then(function(r){return r.json()}).then(function(d){
+    var items = [];
+    var total = 0;
+    if(modalState.type === 'conversations') {
+      items = d.messages || []; total = d.total || 0;
+      if(tab.filter) items = items.filter(function(m){ return m.role === tab.filter; });
+    } else if(modalState.type === 'facts') {
+      items = d.facts || []; total = d.total || 0;
+    } else if(modalState.type === 'emotions') {
+      items = d.emotions || []; total = d.total || 0;
+    } else if(modalState.type === 'associations') {
+      items = d.associations || []; total = d.total || 0;
+    }
+    modalState.total = total;
+
+    if(items.length === 0) {
+      body.innerHTML = '<div class="detail-empty">暂无数据</div>';
+      footer.innerHTML = '';
+      return;
+    }
+
+    var html = '';
+    for(var i=0; i<items.length; i++){
+      html += renderDetailItem(items[i]);
+    }
+    body.innerHTML = html;
+
+    // Pagination
+    var totalPages = Math.ceil(total / modalState.pageSize);
+    if(totalPages > 1) {
+      var fhtml = '';
+      fhtml += '<button class="page-btn" onclick="goPage(-1)"' + (modalState.page <= 0 ? ' disabled' : '') + '>上一页</button>';
+      fhtml += '<span class="page-info">' + (modalState.page + 1) + ' / ' + totalPages + '（共 ' + total + ' 条）</span>';
+      fhtml += '<button class="page-btn" onclick="goPage(1)"' + (modalState.page >= totalPages - 1 ? ' disabled' : '') + '>下一页</button>';
+      footer.innerHTML = fhtml;
+    } else {
+      footer.innerHTML = '<span class="page-info">共 ' + total + ' 条</span>';
+    }
+  }).catch(function(){
+    body.innerHTML = '<div class="detail-empty">加载失败</div>';
+  });
+}
+
+function goPage(delta) {
+  modalState.page += delta;
+  loadModalData();
+}
+
+function renderDetailItem(item) {
+  var html = '<div class="detail-item">';
+  if(modalState.type === 'conversations') {
+    var roleLabel = item.role === 'user' ? '👤 荣慧' : '🤖 小柏';
+    var badgeClass = item.role === 'user' ? 'badge-user' : 'badge-assistant';
+    var time = new Date(item.timestamp).toLocaleString('zh-CN');
+    html += '<div class="meta"><span class="detail-badge ' + badgeClass + '">' + roleLabel + '</span><span>' + time + '</span></div>';
+    html += '<div class="content">' + esc(item.content).substring(0, 200) + (item.content.length > 200 ? '...' : '') + '</div>';
+  } else if(modalState.type === 'facts') {
+    var typeMap = {preference:'🏷️ 偏好',identity:'👤 身份',event:'📅 事件',other:'📝 其他'};
+    var typeClass = ['preference','identity','event'].indexOf(item.fact_type) >= 0 ? item.fact_type : 'other';
+    var typeLabel = typeMap[item.fact_type] || item.fact_type;
+    var time = item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN') : '';
+    html += '<div class="meta"><span class="detail-badge badge-' + typeClass + '">' + typeLabel + '</span><span>' + time + '</span>';
+    if(item.confidence < 1) html += '<span style="color:var(--warning)">置信度: ' + Math.round(item.confidence * 100) + '%</span>';
+    html += '</div>';
+    html += '<div class="content">' + esc(item.content) + '</div>';
+  } else if(modalState.type === 'emotions') {
+    var emoji = emotionEmojis[item.emotion] || '❓';
+    var time = new Date(item.timestamp).toLocaleString('zh-CN');
+    var intensity = Math.round((item.intensity || 0.5) * 100);
+    html += '<div class="meta"><span class="detail-badge badge-emotion">' + emoji + ' ' + item.emotion + '</span>';
+    html += '<span>强度: ' + intensity + '%</span><span>' + time + '</span></div>';
+    if(item.context) html += '<div class="content">' + esc(item.context) + '</div>';
+  } else if(modalState.type === 'associations') {
+    html += '<div class="meta"><span class="detail-badge badge-other">关联</span>';
+    html += '<span>强度: ' + Math.round((item.strength || 0) * 100) + '%</span></div>';
+    html += '<div class="content">' + esc(item.source_type || '') + ' → ' + esc(item.target_type || '') + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// ESC to close modal
+document.addEventListener('keydown', function(e) { if(e.key === 'Escape') closeModal(); });
 </script>
 </body>
 </html>
