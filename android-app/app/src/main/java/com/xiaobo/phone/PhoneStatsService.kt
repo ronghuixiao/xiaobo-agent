@@ -36,6 +36,64 @@ class PhoneStatsService : Service() {
         // 服务运行状态
         var isRunning = false
             private set
+
+        /**
+         * 构建 POST 请求体 JSON
+         */
+        @JvmStatic
+        fun buildPostBody(appUsages: List<AppUsageInfo>): String {
+            val totalSeconds = appUsages.sumOf { it.duration }
+
+            val json = JSONObject()
+            json.put("device_id", DEVICE_ID)
+            json.put("screen_time_total", totalSeconds)
+
+            val appsArray = JSONArray()
+            appUsages.forEach { app ->
+                val appJson = JSONObject()
+                appJson.put("package", app.packageName)
+                appJson.put("name", app.name)
+                appJson.put("duration", app.duration)
+                appsArray.put(appJson)
+            }
+            json.put("app_usages", appsArray)
+
+            return json.toString()
+        }
+
+        /**
+         * 将数据 POST 到服务器
+         */
+        @JvmStatic
+        fun postToServer(body: String): Boolean {
+            var connection: HttpURLConnection? = null
+            return try {
+                val url = URL(SERVER_URL)
+                connection = url.openConnection() as HttpURLConnection
+                connection.apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("Accept", "application/json")
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                    doOutput = true
+                }
+
+                val writer = OutputStreamWriter(connection.outputStream, Charsets.UTF_8)
+                writer.write(body)
+                writer.flush()
+                writer.close()
+
+                val responseCode = connection.responseCode
+                Log.d(TAG, "服务器响应: $responseCode")
+                responseCode in 200..299
+            } catch (e: Exception) {
+                Log.e(TAG, "网络请求失败", e)
+                false
+            } finally {
+                connection?.disconnect()
+            }
+        }
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -150,61 +208,5 @@ class PhoneStatsService : Service() {
                 AppUsageInfo(it.packageName, label, it.totalTimeInForeground / 1000)
             }
             .sortedByDescending { it.duration }
-    }
-
-    /**
-     * 构建 POST 请求体 JSON
-     */
-    fun buildPostBody(appUsages: List<AppUsageInfo>): String {
-        val totalSeconds = appUsages.sumOf { it.duration }
-
-        val json = JSONObject()
-        json.put("device_id", DEVICE_ID)
-        json.put("screen_time_total", totalSeconds)
-
-        val appsArray = JSONArray()
-        appUsages.forEach { app ->
-            val appJson = JSONObject()
-            appJson.put("package", app.packageName)
-            appJson.put("name", app.name)
-            appJson.put("duration", app.duration)
-            appsArray.put(appJson)
-        }
-        json.put("app_usages", appsArray)
-
-        return json.toString()
-    }
-
-    /**
-     * 将数据 POST 到服务器
-     */
-    fun postToServer(body: String): Boolean {
-        var connection: HttpURLConnection? = null
-        return try {
-            val url = URL(SERVER_URL)
-            connection = url.openConnection() as HttpURLConnection
-            connection.apply {
-                requestMethod = "POST"
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                setRequestProperty("Accept", "application/json")
-                connectTimeout = 10_000
-                readTimeout = 10_000
-                doOutput = true
-            }
-
-            val writer = OutputStreamWriter(connection.outputStream, Charsets.UTF_8)
-            writer.write(body)
-            writer.flush()
-            writer.close()
-
-            val responseCode = connection.responseCode
-            Log.d(TAG, "服务器响应: $responseCode")
-            responseCode in 200..299
-        } catch (e: Exception) {
-            Log.e(TAG, "网络请求失败", e)
-            false
-        } finally {
-            connection?.disconnect()
-        }
     }
 }

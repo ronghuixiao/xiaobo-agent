@@ -2246,3 +2246,91 @@ Dashboard 的"待办"区（upcoming tasks）只显示明天的任务，且要求
 
 ### Commit
 - 8591ad6: fix: upcoming tasks API 返回所有未来pending任务，不限单天和有时间的任务
+
+
+## Issue #41: LLM 幻觉生成假任务 + TASKS_DETECTED 标签泄露
+
+### 问题
+用户说"晚上好，准备吃个魔芋面，明天回家。"（日常闲聊），LLM 回复中却生成了 `[TASKS_DETECTED] - 回家准备 [/TASKS_DETECTED]`，导致系统创建了一个"回家准备"的假任务。此外，`[TASKS_DETECTED]` 标签直接泄露给了用户，显示在聊天界面和数据库中。
+
+### 根因分析
+
+**Bug 1: LLM 幻觉任务**
+- 系统提示词中任务识别规则过于宽松：`"当用户在列举要做的事情时，识别出每个任务项"`
+- LLM 将闲聊中提到的未来计划（如"明天回家"）错误理解为任务列举
+- 没有明确的格式约束来区分"任务列表"和"日常对话"
+
+**Bug 2: TASKS_DETECTED 标签泄露**
+- `handle_message()` 方法中有标签清理逻辑（正则 `re.sub`）
+- 但 `stream_handle_message()` 方法（SSE 流式输出）完全缺失标签清理
+- 流式接口直接 `yield chunk` 将原始 LLM 输出（含标签）发送给客户端
+- 同时将未清理的原始内容保存到数据库
+
+### 修复
+
+**Fix 1: 严格化系统提示词（handler.py 第106-118行）**
+
+修改前：
+```
+## 任务识别（智能提取）
+你能从用户的消息中智能识别任务。当用户在列举要做的事情时，识别出每个任务项。
+```
+
+修改后：
+```
+## 任务识别（极其严格）
+⚠️ 只有以下情况才能识别为任务：
+用户消息以 "今日任务："、"任务："、"待办：" 开头，后面跟着分号或换行分隔的任务列表。
+以下情况绝对不是任务：闲聊中提到未来计划、描述正在做的事、讨论话题、分享心情...
+判断标准：如果用户的消息没有以 "今日任务："、"任务："、"待办：" 开头，就绝对不要输出任务标记。
+```
+
+**Fix 2: stream_handle_message 添加标签清理（handler.py 第378-400行）**
+
+修改前：
+```python
+full_response = []
+async for chunk in self.llm.stream_chat(messages, temperature=temperature):
+    full_response.append(chunk)
+    yield chunk  # ← 直接输出原始内容，含标签
+response_content = "".join(full_response)
+# 保存原始内容到数据库
+```
+
+修改后：
+```python
+full_response = []
+async for chunk in self.llm.stream_chat(messages, temperature=temperature):
+    full_response.append(chunk)
+
+# 提取任务并清理标签
+raw_response = "".join(full_response)
+extracted_tasks = self.extract_tasks_from_response(raw_response)
+if extracted_tasks:
+    await self._save_extracted_tasks(extracted_tasks, user_msg.timestamp)
+    clean_response = re.sub(r'\[TASKS_DETECTED\]\s*\n.*?\[/TASKS_DETECTED\]', '', raw_response, flags=re.DOTALL).strip()
+else:
+    clean_response = raw_response
+
+# 输出清理后的内容
+for line in clean_response.split('\n'):
+    yield line + '\n'
+
+# 保存清理后的内容到数据库
+```
+
+### 验证
+- ✅ 闲聊"明天回家"不再创建假任务
+- ✅ 明确的"今日任务：A；B；C"仍能正确提取任务
+- ✅ 聊天界面和数据库中不再显示 [TASKS_DETECTED] 标签
+
+### 教训
+- LLM 任务提取不能依赖模型的"智能判断"，必须用明确的格式约束（如前缀匹配）
+- 流式输出和非流式输出必须保持一致的后处理逻辑
+- 任何内部标记（如 [TASKS_DETECTED]）在输出给用户前必须清理
+
+### 附加修复: 清理 facts 表中的幻觉数据
+- 删除了 `计划明天回家`（闲聊被误提取为 commitment）
+- 删除了 `买菜；做饭；散步`（测试数据）
+- 删除了 `东西还没收拾`、`收拾行李`（测试数据）
+- 仅保留 `准备吃魔芋面`（用户真实提到的信息）
