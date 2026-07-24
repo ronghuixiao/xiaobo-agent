@@ -75,6 +75,11 @@ def create_api_router(
         await task_mgr.update_task_status(task_id, status)
         return {"status": "updated"}
 
+    @router.delete("/api/tasks/{task_id}")
+    async def delete_task(task_id: str):
+        await task_mgr.db.delete_task(task_id)
+        return {"status": "deleted", "id": task_id}
+
     @router.get("/api/tasks/upcoming")
     async def get_upcoming_tasks():
         return {"tasks": await task_mgr.get_upcoming_tasks()}

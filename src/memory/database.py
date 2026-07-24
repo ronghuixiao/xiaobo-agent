@@ -569,6 +569,14 @@ class MemoryDatabase:
         )
         await self._db.commit()
 
+    async def delete_task(self, task_id: str) -> None:
+        """删除指定任务"""
+        await self._db.execute(
+            "DELETE FROM tasks WHERE id = ?",
+            (task_id,),
+        )
+        await self._db.commit()
+
     async def move_pending_tasks(self, from_date: str, to_date: str) -> int:
         """将指定日期的待办任务移动到另一个日期"""
         cursor = await self._db.execute(

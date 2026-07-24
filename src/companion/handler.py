@@ -103,34 +103,6 @@ SYSTEM_PROMPT_TEMPLATE = """你是{companion_name}，{user_name}的个人数字�
 - 如果不确定某个操作是否成功，就说"我不确定有没有弄好，你看看对不对"
 - 宁可少说，不要说空话。用户问"记录上了吗"，如果你没把握就老实说"我看一下"
 
-## 任务识别（极其严格）
-
-⚠️ 只有以下情况才能识别为任务，其他所有情况都不要输出任务标记：
-
-**唯一允许识别的格式：** 用户消息以 "今日任务："、"任务："、"待办：" 开头，后面跟着分号或换号分隔的任务列表。
-例如：「今日任务：买菜；做饭」→ 这是任务
-例如：「任务：写作业」→ 这是任务
-
-**以下情况绝对不是任务，不要输出 [TASKS_DETECTED]：**
-- 用户在闲聊中提到未来计划（如"明天回家"、"晚上吃火锅"、"周末出去玩"）
-- 用户描述正在做或打算做的事（如"准备吃个魔芋面"、"在学习"）
-- 用户讨论某个话题（如"最近工作挺忙的"）
-- 用户分享心情或状态（如"好累啊"、"今天很开心"）
-- 任何形式的日常对话、聊天、分享
-
-**判断标准：** 如果用户的消息没有以 "今日任务："、"任务："、"待办：" 开头，就绝对不要输出任务标记。宁可漏掉任务，也不要幻觉出假任务。
-
-识别到任务时，在回复的**最后一行**用以下格式输出（用户看不到，系统会解析）：
-[TASKS_DETECTED]
-- 任务1
-- 任务2
-[/TASKS_DETECTED]
-
-注意：
-- 只识别任务，不要管日期（日期由系统根据消息时间自动处理）
-- 任务名保持用户原话，不要修改
-- ⚠️ 如果你不确定是否应该识别为任务，就不要识别。假任务比漏掉任务更糟糕
-
 ## 重要
 - 不要猜测时间！如果记忆中没有明确的时间信息，不要自己添加"昨晚"、"前天"、"刚才"等时间词
 - 不要每次都提起记忆中的事情，偶尔提一次就好
@@ -168,36 +140,6 @@ class ConversationHandler:
         if ConversationHandler.is_learning_content(message):
             return ConversationHandler.TEMPERATURE_LEARNING
         return ConversationHandler.TEMPERATURE_NORMAL
-
-    @staticmethod
-    def extract_tasks_from_response(response: str) -> list:
-        """从 LLM 回复中提取任务列表
-
-        解析 [TASKS_DETECTED] ... [/TASKS_DETECTED] 标记
-        返回: ["任务1", "任务2", ...]
-        日期由调用方根据消息时间戳决定，这里只提取任务名。
-        """
-        import re
-
-        # 匹配 [TASKS_DETECTED] ... [/TASKS_DETECTED]
-        pattern = r'\[TASKS_DETECTED\]\s*\n(.*?)\[/TASKS_DETECTED\]'
-        match = re.search(pattern, response, re.DOTALL)
-
-        if not match:
-            return []
-
-        tasks_text = match.group(1).strip()
-
-        # 提取任务
-        tasks = []
-        for line in tasks_text.split("\n"):
-            line = line.strip()
-            if line.startswith("- "):
-                title = line[2:].strip()
-                if title:
-                    tasks.append(title)
-
-        return tasks
 
     def __init__(
         self,
@@ -274,20 +216,12 @@ class ConversationHandler:
         temperature = self.get_temperature(user_message)
         response = await self.llm.chat(messages, temperature=temperature)
 
-        # 5. 从 LLM 回复中提取任务（智能识别）
-        raw_response = response.content
-        extracted_tasks = self.extract_tasks_from_response(raw_response)
-        if extracted_tasks:
-            # 用消息时间戳确定任务日期
-            await self._save_extracted_tasks(extracted_tasks, user_msg.timestamp)
-            # 从回复中移除任务标记，用户看不到
-            import re
-            clean_response = re.sub(
-                r'\[TASKS_DETECTED\]\s*\n.*?\[/TASKS_DETECTED\]',
-                '', raw_response, flags=re.DOTALL
-            ).strip()
-        else:
-            clean_response = raw_response
+        # 5. 清理 LLM 回复中的任务标记（如果有的话）
+        import re
+        clean_response = re.sub(
+            r'\[TASKS_DETECTED\]\s*\n.*?\[/TASKS_DETECTED\]',
+            '', response.content, flags=re.DOTALL
+        ).strip()
 
         # 6. 保存助手回复（清理后的）
         assistant_msg = ConversationMessage(
@@ -377,18 +311,13 @@ class ConversationHandler:
         async for chunk in self.llm.stream_chat(messages, temperature=temperature):
             full_response.append(chunk)
 
-        # 5. 提取任务并清理标签
+        # 5. 清理 LLM 回复中的任务标记
         raw_response = "".join(full_response)
-        extracted_tasks = self.extract_tasks_from_response(raw_response)
-        if extracted_tasks:
-            await self._save_extracted_tasks(extracted_tasks, user_msg.timestamp)
-            import re
-            clean_response = re.sub(
-                r'\[TASKS_DETECTED\]\s*\n.*?\[/TASKS_DETECTED\]',
-                '', raw_response, flags=re.DOTALL
-            ).strip()
-        else:
-            clean_response = raw_response
+        import re
+        clean_response = re.sub(
+            r'\[TASKS_DETECTED\]\s*\n.*?\[/TASKS_DETECTED\]',
+            '', raw_response, flags=re.DOTALL
+        ).strip()
 
         # 6. 流式输出清理后的回复（逐块输出）
         for line in clean_response.split('\n'):
@@ -420,31 +349,6 @@ class ConversationHandler:
                     await self.memory.save_association(assoc)
         except Exception as e:
             logger.warning(f"信息提取失败（不影响回复）: {e}")
-
-    async def _save_extracted_tasks(self, tasks: list, message_time: datetime) -> None:
-        """保存 LLM 提取的任务到数据库
-
-        Args:
-            tasks: 任务名列表 ["任务1", "任务2", ...]
-            message_time: 用户消息的时间戳，用于确定任务日期
-        """
-        date_str = message_time.strftime("%Y-%m-%d")
-
-        for title in tasks:
-            task_id = f"llm-{date_str}-{hash(title) % 1000000:06d}"
-
-            # 检查是否已存在
-            existing = await self.memory.get_tasks_for_date(date_str, task_type="user")
-            existing_titles = {t["title"] for t in existing}
-
-            if title not in existing_titles:
-                await self.memory.save_task(
-                    title=title,
-                    date_str=date_str,
-                    task_type="user",
-                    task_id=task_id,
-                )
-                logger.info(f"🤖 LLM识别任务: {title} ({date_str})")
 
     async def _detect_task_move(self, user_message: str, msg_time: datetime) -> str:
         """检测用户是否要求移动任务到另一个日期，自动执行"""
