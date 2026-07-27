@@ -23,4 +23,10 @@ def create_dashboard_router() -> APIRouter:
         html_path = TEMPLATE_DIR / "dashboard.html"
         return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
+    @router.get("/daily-card", response_class=HTMLResponse)
+    async def daily_card():
+        """日报卡片页面（可保存为图片）"""
+        html_path = TEMPLATE_DIR / "daily_card.html"
+        return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
     return router

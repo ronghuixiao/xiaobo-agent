@@ -51,6 +51,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是{companion_name}，{user_name}的个人数字�
 - 给出一个小小的延伸或思考题
 - 不要只是复读"好的学了XX"
 - 如果能结合她之前学过的内容，主动提一下关联
+- ⚠️ 复习提问：当用户聊到「学习记录」中已有的主题时，自然地提问复习（如"上次你问过两个队列实现栈，pop操作是怎么做的来着？"）。不要每次都问，大约每3-4次聊到同一主题时提问一次，保持自然
 
 ## 什么是AI味（绝对不能有的）
 - "我理解你的感受"、"我能感受到你的情绪"
@@ -81,10 +82,17 @@ SYSTEM_PROMPT_TEMPLATE = """你是{companion_name}，{user_name}的个人数字�
 ## 相关历史记忆（语义检索）
 {related_memories}
 
+## 最近对话记录
+{recent_context}
+
+## 学习记录
+{learning_context}
+
 ## 今日任务清单
 {today_tasks}
 
 {action_result}
+{tool_section}
 
 ## 任务管理规则
 - ⚠️ 最高优先级：用户在对话中的明确指令（如"今天休息"、"任务挪到明天"、"不做这个了"）必须被尊重。如果用户说了要调整任务，不要再去追问那些任务
@@ -146,11 +154,23 @@ class ConversationHandler:
         settings: Settings,
         llm: LLMProvider,
         memory: MemoryDatabase,
+        tool_registry=None,
+        skill_registry=None,
     ):
         self.settings = settings
         self.llm = llm
+        # LLM 容错层：兜底 + 熔断 + 缓存
+        from src.llm.resilience import LLMResilience
+        self.llm_resilient = LLMResilience(llm)
         self.memory = memory
-        self.extractor = MessageExtractor(llm)
+        self.extractor = MessageExtractor(self.llm_resilient)
+        self.tool_registry = tool_registry
+        if tool_registry:
+            from src.tools.executor import ToolExecutor
+            self.tool_executor = ToolExecutor(tool_registry)
+        else:
+            self.tool_executor = None
+        self.skill_registry = skill_registry
         self._current_session_id: Optional[str] = None
 
     def start_session(self) -> str:
@@ -182,6 +202,30 @@ class ConversationHandler:
         )
         await self.memory.save_message(user_msg)
 
+        # 1.5 Skill匹配（如果消息触发了某个Skill，优先执行）
+        if self.skill_registry:
+            matched_skill = self.skill_registry.match(user_message)
+            if matched_skill:
+                from src.skills.base import SkillContext
+                skill_ctx = SkillContext(
+                    user_message=user_message,
+                    llm=self.llm,
+                    memory=self.memory,
+                    tools=self.tool_registry,
+                    settings=self.settings,
+                )
+                skill_result = await self.skill_registry.execute(matched_skill, skill_ctx)
+                if skill_result.success and skill_result.content:
+                    # 保存Skill回复
+                    assistant_msg = ConversationMessage(
+                        session_id=self._current_session_id,
+                        role="assistant",
+                        content=skill_result.content,
+                        timestamp=datetime.now(),
+                    )
+                    await self.memory.save_message(assistant_msg)
+                    return skill_result.content
+
         # 1.5 检测任务移动指令（在 LLM 回复前执行）
         move_result = await self._detect_task_move(user_message, user_msg.timestamp)
         action_result = move_result if move_result else ""
@@ -192,6 +236,8 @@ class ConversationHandler:
         known_facts = await self._get_known_facts()
         today_tasks = await self._get_today_tasks()
         related_memories = await self._get_related_memories(user_message)
+        recent_context = await self._get_recent_context()
+        learning_context = await self._get_learning_context()
 
         # 3. 构建系统提示
         now = datetime.now()
@@ -202,8 +248,11 @@ class ConversationHandler:
             current_time=now.strftime("%H:%M"),
             known_facts=known_facts,
             related_memories=related_memories,
+            recent_context=recent_context,
+            learning_context=learning_context,
             today_tasks=today_tasks,
             action_result=action_result,
+            tool_section=self.tool_registry.to_prompt_section() if self.tool_registry else "",
         )
 
         # 4. 调用 LLM
@@ -214,7 +263,17 @@ class ConversationHandler:
 
         # 根据内容动态调整 temperature
         temperature = self.get_temperature(user_message)
-        response = await self.llm.chat(messages, temperature=temperature)
+        response = await self.llm_resilient.chat(messages, temperature=temperature)
+
+        # 4.5 工具调用处理
+        if self.tool_executor and self.tool_executor.has_tool_calls(response.content):
+            has_calls, tool_results, natural_text = await self.tool_executor.process_with_tools(response.content)
+            if has_calls and tool_results:
+                # 注入工具结果，再次调用LLM获取最终回复
+                tool_context = self.tool_executor.format_results_for_context(tool_results)
+                messages.append(ChatMessage(role="assistant", content=natural_text))
+                messages.append(ChatMessage(role="user", content=f"[系统] 工具调用结果已返回：\n{tool_context}\n\n请基于以上工具结果回复用户。"))
+                response = await self.llm_resilient.chat(messages, temperature=temperature)
 
         # 5. 清理 LLM 回复中的任务标记（如果有的话）
         import re
@@ -234,7 +293,7 @@ class ConversationHandler:
 
         # 7. 提取信息（fire and forget，不阻塞回复）
         try:
-            facts, emotion, topics = await self.extractor.extract(user_msg)
+            facts, emotion, topics, is_learning, learning_info = await self.extractor.extract(user_msg)
             for fact in facts:
                 await self.memory.save_fact(fact)
             if emotion:
@@ -247,6 +306,20 @@ class ConversationHandler:
                         message_ids=[user_msg.id],
                     )
                     await self.memory.save_association(assoc)
+            # 学习内容自动记录（LLM智能识别，非关键词匹配）
+            if is_learning and learning_info:
+                record = {
+                    "topic": learning_info.get("topic", ""),
+                    "content": learning_info.get("content", ""),
+                    "understanding": learning_info.get("understanding", ""),
+                    "related_topics": learning_info.get("related_topics", ""),
+                    "tags": learning_info.get("tags", ""),
+                    "source_message_id": user_msg.id,
+                    "created_at": datetime.now().isoformat(),
+                }
+                await self.memory.save_learning_record(record)
+                topic_name = learning_info.get("topic", "")
+                logger.info(f"📚 学习记录已保存: {topic_name}")
         except Exception as e:
             logger.warning(f"信息提取失败（不影响回复）: {e}")
 
@@ -275,6 +348,30 @@ class ConversationHandler:
         )
         await self.memory.save_message(user_msg)
 
+        # 1.5 Skill匹配（如果消息触发了某个Skill，优先执行）
+        if self.skill_registry:
+            matched_skill = self.skill_registry.match(user_message)
+            if matched_skill:
+                from src.skills.base import SkillContext
+                skill_ctx = SkillContext(
+                    user_message=user_message,
+                    llm=self.llm,
+                    memory=self.memory,
+                    tools=self.tool_registry,
+                    settings=self.settings,
+                )
+                skill_result = await self.skill_registry.execute(matched_skill, skill_ctx)
+                if skill_result.success and skill_result.content:
+                    # 保存Skill回复
+                    assistant_msg = ConversationMessage(
+                        session_id=self._current_session_id,
+                        role="assistant",
+                        content=skill_result.content,
+                        timestamp=datetime.now(),
+                    )
+                    await self.memory.save_message(assistant_msg)
+                    yield skill_result.content
+
         # 1.5 检测任务移动指令
         move_result = await self._detect_task_move(user_message, user_msg.timestamp)
         action_result = move_result if move_result else ""
@@ -285,6 +382,8 @@ class ConversationHandler:
         known_facts = await self._get_known_facts()
         today_tasks = await self._get_today_tasks()
         related_memories = await self._get_related_memories(user_message)
+        recent_context = await self._get_recent_context()
+        learning_context = await self._get_learning_context()
 
         # 3. 构建系统提示
         now = datetime.now()
@@ -295,8 +394,11 @@ class ConversationHandler:
             current_time=now.strftime("%H:%M"),
             known_facts=known_facts,
             related_memories=related_memories,
+            recent_context=recent_context,
+            learning_context=learning_context,
             today_tasks=today_tasks,
             action_result=action_result,
+            tool_section=self.tool_registry.to_prompt_section() if self.tool_registry else "",
         )
 
         # 4. 调用 LLM 流式接口
@@ -308,11 +410,24 @@ class ConversationHandler:
         # 根据内容动态调整 temperature
         temperature = self.get_temperature(user_message)
         full_response = []
-        async for chunk in self.llm.stream_chat(messages, temperature=temperature):
+        async for chunk in self.llm_resilient.stream_chat(messages, temperature=temperature):
             full_response.append(chunk)
 
         # 5. 清理 LLM 回复中的任务标记
         raw_response = "".join(full_response)
+
+        # 4.5 工具调用处理
+        if self.tool_executor and self.tool_executor.has_tool_calls(raw_response):
+            has_calls, tool_results, natural_text = await self.tool_executor.process_with_tools(raw_response)
+            if has_calls and tool_results:
+                tool_context = self.tool_executor.format_results_for_context(tool_results)
+                messages.append(ChatMessage(role="assistant", content=natural_text))
+                messages.append(ChatMessage(role="user", content=f"[系统] 工具调用结果已返回：\n{tool_context}\n\n请基于以上工具结果回复用户。"))
+                # 重新流式生成
+                raw_response = ""
+                async for chunk in self.llm_resilient.stream_chat(messages, temperature=temperature):
+                    raw_response += chunk
+                natural_text = raw_response
         import re
         clean_response = re.sub(
             r'\[TASKS_DETECTED\]\s*\n.*?\[/TASKS_DETECTED\]',
@@ -332,9 +447,9 @@ class ConversationHandler:
         )
         await self.memory.save_message(assistant_msg)
 
-        # 6. 提取信息（fire and forget，不阻塞回复）
+        # 8. 提取信息（fire and forget，不阻塞回复）
         try:
-            facts, emotion, topics = await self.extractor.extract(user_msg)
+            facts, emotion, topics, is_learning, learning_info = await self.extractor.extract(user_msg)
             for fact in facts:
                 await self.memory.save_fact(fact)
             if emotion:
@@ -347,6 +462,19 @@ class ConversationHandler:
                         message_ids=[user_msg.id],
                     )
                     await self.memory.save_association(assoc)
+            # 学习内容自动记录（LLM智能识别，非关键词匹配）
+            if is_learning and learning_info:
+                record = {
+                    "topic": learning_info.get("topic", ""),
+                    "content": learning_info.get("content", ""),
+                    "understanding": learning_info.get("understanding", ""),
+                    "related_topics": learning_info.get("related_topics", ""),
+                    "tags": learning_info.get("tags", ""),
+                    "source_message_id": user_msg.id,
+                    "created_at": datetime.now().isoformat(),
+                }
+                topic_name = learning_info.get("topic", "")
+                logger.info(f"📚 学习记录已保存: {topic_name}")
         except Exception as e:
             logger.warning(f"信息提取失败（不影响回复）: {e}")
 
@@ -517,26 +645,28 @@ class ConversationHandler:
             return "（暂无相关记忆）"
 
     async def _get_learning_context(self) -> str:
-        """获取学习记录上下文，注入系统提示"""
+        """获取学习记录上下文，从 learning_log 表读取"""
         try:
-            # 从 facts 表中提取学习相关的记录
-            facts = await self.memory.get_facts(limit=100)
-            learning_keywords = ["学", "看", "读", "做题", "理解", "笔记",
-                                 "课程", "实验", "复习", "掌握", "练习"]
-
-            learning_facts = []
-            for f in facts:
-                if any(kw in (f.content + f.subject) for kw in learning_keywords):
-                    time_info = f" [{f.event_time}]" if f.event_time else ""
-                    learning_facts.append(
-                        f"  - {f.subject}: {f.content[:80]}{time_info}"
-                    )
-
-            if not learning_facts:
+            records = await self.memory.get_learning_records(limit=15)
+            if not records:
                 return "（暂无学习记录）"
 
-            # 最多显示10条，最新的在前
-            return "荣慧最近的学习记录：\n" + "\n".join(learning_facts[:10])
+            lines = []
+            for r in records:
+                time_str = r.get("created_at", "")[:10]
+                topic = r.get("topic", "")
+                content = r.get("content", "")
+                understanding = r.get("understanding", "")
+                related = r.get("related_topics", "")
+
+                line = f"  - [{time_str}] {topic}: {content[:80]}"
+                if understanding:
+                    line += f"（理解程度: {understanding}）"
+                if related:
+                    line += f" [关联: {related}]"
+                lines.append(line)
+
+            return "荣慧最近的学习记录：\n" + "\n".join(lines)
         except Exception as e:
             logger.warning(f"获取学习记录失败: {e}")
             return "（暂无学习记录）"

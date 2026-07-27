@@ -16,6 +16,7 @@ from src.memory.database import MemoryDatabase
 from src.companion.task_manager import TaskManager
 from src.companion.command_dispatcher import CommandDispatcher
 from src.api.routes import create_api_router
+from src.api.daily_summary import create_daily_summary_router
 
 logger = logging.getLogger("xiaobo")
 
@@ -40,7 +41,25 @@ async def daemon_mode(settings):
     except Exception as e:
         logger.warning(f"WAL 模式设置失败: {e}")
 
-    handler = ConversationHandler(settings, llm, memory)
+    # === 初始化工具系统 ===
+    from src.tools import ToolRegistry
+    tool_registry = ToolRegistry()
+    from src.tools.builtin import TimeTool, CalculatorTool, MemoryQueryTool
+    tool_registry.register(TimeTool())
+    tool_registry.register(CalculatorTool())
+    tool_registry.register(MemoryQueryTool(memory=memory))
+    logger.info(f"🔧 已注册 {len(tool_registry.list_tools())} 个工具")
+
+    # === 初始化 Skill 系统 ===
+    from src.skills import SkillRegistry
+    skill_registry = SkillRegistry()
+    from src.skills.builtin import DailyReportSkill, LearningRecordSkill, MoodAnalysisSkill
+    skill_registry.register(DailyReportSkill())
+    skill_registry.register(LearningRecordSkill())
+    skill_registry.register(MoodAnalysisSkill())
+    logger.info(f"🎯 已注册 {len(skill_registry.list_skills())} 个 Skill")
+
+    handler = ConversationHandler(settings, llm, memory, tool_registry=tool_registry, skill_registry=skill_registry)
 
     # 初始化聊天 API（供 /api/chat/history 使用）
     from src.api.chat import init_chat
@@ -150,6 +169,25 @@ async def daemon_mode(settings):
     scheduler.schedule_interval("proactive_check", 4 * 3600, proactive_check)
     scheduler.schedule_interval("task_reminder_check", 30 * 60, check_pending_task_reminders)
 
+    # 每日记忆巩固（凌晨3点）
+    async def memory_consolidation():
+        """压缩7天前的旧对话为摘要，清理过期记忆"""
+        logger.info("🧠 开始记忆巩固...")
+        try:
+            from src.memory.summarizer import Summarizer
+            from src.memory.forgetter import Forgetter
+            summarizer = Summarizer(llm, memory)
+            forgetter = Forgetter(memory)
+            # 压缩旧对话
+            await summarizer.summarize_day()
+            # 清理过期/重复/低置信度记忆
+            await forgetter.run_all_cleanup()
+            logger.info("🧠 记忆巩固完成")
+        except Exception as e:
+            logger.error(f"记忆巩固失败: {e}")
+    
+    scheduler.schedule_daily("memory_consolidation", 3, 0, memory_consolidation)
+
     # 自动创建今日内置任务
     async def _ensure_builtin_tasks():
         """创建当天的内置系统任务（早间签到、主动关怀检查、每日日报生成）"""
@@ -189,6 +227,7 @@ async def daemon_mode(settings):
             tracker=tracker,
             task_mgr=task_mgr,
         ))
+        web_app.include_router(create_daily_summary_router(memory=memory))
 
         # === 飞书 Webhook 路由（集成到8088端口） ===
         import json as _json

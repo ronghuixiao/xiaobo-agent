@@ -4,8 +4,10 @@
 - 事实（人物、偏好、能力、目标等）
 - 情绪
 - 主题标签
+- 学习内容（LLM智能识别，非关键词匹配）
 
 使用 LLM 进行抽取，结果存入记忆数据库。
+一次 LLM 调用完成所有抽取，不增加额外延迟。
 """
 
 import json
@@ -46,20 +48,39 @@ EXTRACTION_PROMPT = """你是一个信息抽取助手。从用户的对话消息
     "intensity": 0.0-1.0,
     "context": "什么情境下产生的"
   }},
-  "topics": ["话题标签1", "话题标签2"]
+  "topics": ["话题标签1", "话题标签2"],
+  "is_learning": true/false,
+  "learning_info": {{
+    "topic": "学习主题",
+    "content": "具体学了什么/做了什么/研究了什么",
+    "understanding": "理解程度（初步了解/基本掌握/完全理解/实践应用）",
+    "tags": "标签1,标签2"
+  }}
 }}
 
-规则：
+## 判断 is_learning 的规则（非常重要）：
+以下情况都算学习/工作/技术实践，is_learning 应为 true：
+- 明确说"学了/看了/读了/做了" → true
+- 讨论技术实现："我在做skill系统"、"我在研究tool calling"、"我在优化项目" → true
+- 描述工程实践："刚把RAG重构了"、"在调试memory模块"、"在写测试" → true
+- 分享技术理解："我理解了事件循环"、"搞懂了依赖注入" → true
+- 讨论设计方案："我在设计一个缓存策略"、"在考虑用什么数据库" → true
+- 日常闲聊、情绪表达、询问时间等 → false
+
+## learning_info 字段说明：
+- 只有 is_learning 为 true 时才填写
+- topic: 简短的主题名（如：Tool Calling实现、RAG优化、Skill系统设计）
+- content: 具体做了什么/学了什么（一句话描述）
+- understanding: 从消息推断的理解程度
+- tags: 相关标签（逗号分隔，如：agent,架构,python）
+
+## 其他规则：
 - 只提取明确提到的信息，不要猜测
 - fact_type 对应：person=人物关系, preference=偏好, ability=能力, goal=目标, habit=习惯, event=事件, commitment=承诺/计划, opinion=观点
 - **重要：event_time必须使用绝对时间，不要使用"昨晚"、"前天"、"刚才"等相对时间词**
-  - 如果用户说"昨晚梦到四川"，当前时间是2026-07-10，则event_time应该是"2026-07-09晚上"
-  - 如果用户说"前天去了学校"，当前时间是2026-07-10，则event_time应该是"2026-07-08"
-  - 如果用户说"今天完成了实验"，则event_time应该是"2026-07-10"
-  - 如果无法确定具体时间，event_time设为null
 - 情绪判断要结合语境，不要只看关键词
 - 话题标签用中文，简洁明了
-- 如果没有值得提取的信息，返回空数组
+- 如果没有值得提取的信息，返回空数组和false
 - 只返回 JSON，不要其他文字
 """
 
@@ -72,11 +93,11 @@ class MessageExtractor:
 
     async def extract(
         self, message: ConversationMessage
-    ) -> Tuple[List[ExtractedFact], Optional[EmotionRecord], List[str]]:
+    ) -> Tuple[List[ExtractedFact], Optional[EmotionRecord], List[str], bool, Optional[dict]]:
         """从消息中提取信息
 
         Returns:
-            (facts, emotion_record, topics)
+            (facts, emotion_record, topics, is_learning, learning_info)
         """
         from datetime import datetime
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -127,11 +148,18 @@ class MessageExtractor:
             # 话题标签
             topics = data.get("topics", [])
 
-            return facts, emotion_record, topics
+            # 学习内容识别（LLM智能判断，非关键词匹配）
+            is_learning = data.get("is_learning", False)
+            learning_info = data.get("learning_info", None)
+            if is_learning and learning_info and not learning_info.get("topic"):
+                is_learning = False
+                learning_info = None
+
+            return facts, emotion_record, topics, is_learning, learning_info
 
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"信息抽取解析失败: {e}")
-            return [], None, []
+            return [], None, [], False, None
         except Exception as e:
             logger.error(f"信息抽取异常: {e}")
-            return [], None, []
+            return [], None, [], False, None

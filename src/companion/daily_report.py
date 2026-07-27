@@ -2,7 +2,7 @@
 
 在每天指定时间（默认 22:00）生成日报并推送。
 包含：今日对话回顾、情绪轨迹、任务完成情况、提取的事实、记忆统计。
-改进版：增加更多数据源，深度分析，更有温度的总结。
+改进版：增加更多数据源，深度分析，更有温度的总结。增加连续感（昨天-今天-明天）。
 """
 
 import logging
@@ -17,8 +17,8 @@ from src.memory.database import MemoryDatabase
 
 logger = logging.getLogger(__name__)
 
-# 改进的日报 prompt - 更详细、更有温度、不限制字数
-REPORT_PROMPT_V2 = """你是一个温暖、有洞察力的个人助手。根据以下今日数据，为用户生成一份详细、有深度的日报。
+# 日报 prompt - 有温度、有连续感的日报
+REPORT_PROMPT_V2 = """你是一个温暖、有洞察力的个人助手，像一个好朋友在写日记一样。根据以下数据，为用户生成一份有连续感、有温度的日报。
 
 ## 📊 今日数据概览
 - 日期: {date}
@@ -26,6 +26,9 @@ REPORT_PROMPT_V2 = """你是一个温暖、有洞察力的个人助手。根据�
 - 情绪记录: {emotion_count} 条
 - 新增事实: {fact_count} 条
 - 任务完成: {tasks_completed}/{tasks_total} 个
+
+## 📅 昨日对话记录
+{yesterday_conversation}
 
 ## 💬 今日对话记录
 {conversation}
@@ -43,8 +46,8 @@ REPORT_PROMPT_V2 = """你是一个温暖、有洞察力的个人助手。根据�
 ### 未完成
 {tasks_pending}
 
-## 📈 昨日对比
-- 昨日对话数: {yesterday_conversations} 条
+## 📌 明日待办
+{tomorrow_tasks}
 
 ## 重要规则（必须遵守）
 - **只基于上面提供的数据写报告**，不要添加任何不存在的内容
@@ -54,6 +57,9 @@ REPORT_PROMPT_V2 = """你是一个温暖、有洞察力的个人助手。根据�
 - 如果有情绪记录，分析情绪变化趋势
 - 如果情绪记录较少，可以说"今天没有记录情绪波动"
 - **保持深度和温度**，不要敷衍了事
+- **连续感**：将昨天、今天、明天串联起来，让报告读起来像一篇日记
+- **不要**包含任何打卡、连续天数、streak 相关的内容
+- 语气温暖、真诚，像一个关心你的朋友在写日记
 
 ## 📝 请按以下格式生成日报（至少500字）：
 
@@ -76,8 +82,13 @@ REPORT_PROMPT_V2 = """你是一个温暖、有洞察力的个人助手。根据�
 ### 📌 值得记住的
 列出从对话中提取的重要信息或承诺。
 
-### 💡 小柏的建议
-基于今天的对话和任务完成情况，给用户1-2条真诚的建议或鼓励。
+### 📝 今日小总结
+像写日记一样，完成这三件事：
+a) **回顾昨天**：简要提到昨天发生了什么、聊了什么、计划了什么（参考"昨日对话记录"和"明日待办"）
+b) **总结今天**：今天的关键时刻、感受、收获是什么
+c) **展望明天**：明天有什么计划或期待
+写完总结后，在最后附上 2-3 个关键词/标签来概括今天（如：#充实的一天 #项目进展 #放松时刻）
+语气要温暖、个人化，像一个朋友在为你记录这一天。
 """
 
 
@@ -112,7 +123,7 @@ class DailyReportGenerator:
         day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
 
-        # 获取昨天的对话数用于对比
+        # 获取昨天的对话（用于连续感）
         yesterday_start = day_start - timedelta(days=1)
         all_messages = await self.memory.get_messages(limit=1000)
         yesterday_messages = [
@@ -143,13 +154,19 @@ class DailyReportGenerator:
         tasks_done = [t for t in tasks if t["status"] == "done"]
         tasks_pending = [t for t in tasks if t["status"] != "done"]
 
-        # 格式化对话内容（提炼要点而不是简单罗列）
+        # 格式化今日对话内容
         conversation_lines = []
         for m in day_messages:
-            # 对长对话做截断，避免 prompt 过长
             content = m.content[:200] + "..." if len(m.content) > 200 else m.content
             conversation_lines.append(f"[{m.timestamp.strftime('%H:%M')}] {m.role}: {content}")
         conversation_text = "\n".join(conversation_lines) or "（今天没有对话记录）"
+
+        # 格式化昨日对话内容（用于连续感）
+        yesterday_conversation_lines = []
+        for m in yesterday_messages:
+            content = m.content[:200] + "..." if len(m.content) > 200 else m.content
+            yesterday_conversation_lines.append(f"[{m.timestamp.strftime('%H:%M')}] {m.role}: {content}")
+        yesterday_conversation_text = "\n".join(yesterday_conversation_lines) or "（昨天没有对话记录）"
 
         # 格式化情绪记录
         emotion_lines = []
@@ -178,6 +195,16 @@ class DailyReportGenerator:
             tasks_pending_lines.append(f"⬜ {title}")
         tasks_pending_text = "\n".join(tasks_pending_lines) or "（所有任务都已完成！）"
 
+        # 获取明天的任务（用于展望）
+        tomorrow = target_date + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime("%Y-%m-%d")
+        tomorrow_tasks = await self._get_tasks_for_date(tomorrow_str)
+        tomorrow_tasks_lines = []
+        for t in tomorrow_tasks:
+            title = t["title"] or "未命名任务"
+            tomorrow_tasks_lines.append(f"📌 {title}")
+        tomorrow_tasks_text = "\n".join(tomorrow_tasks_lines) or "（明天暂无已安排的任务）"
+
         # 如果完全没有数据，直接返回提示，不调用 LLM
         if not day_messages and not day_emotions and not day_facts and not tasks:
             return (
@@ -203,13 +230,14 @@ class DailyReportGenerator:
             facts=facts_text,
             tasks_done=tasks_done_text,
             tasks_pending=tasks_pending_text,
-            yesterday_conversations=len(yesterday_messages),
+            yesterday_conversation=yesterday_conversation_text,
+            tomorrow_tasks=tomorrow_tasks_text,
         )
 
         response = await self.llm.chat(
             messages=[ChatMessage(role="user", content=prompt)],
-            temperature=0.7,  # 提高温度让内容更丰富
-            max_tokens=2048,  # 增加 token 上限
+            temperature=0.7,
+            max_tokens=2048,
         )
 
         return response.content

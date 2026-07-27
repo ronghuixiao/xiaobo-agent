@@ -34,7 +34,7 @@ class TestMessageExtractor:
             content="我想学Rust，感觉很兴奋！"
         )
 
-        facts, emotion, topics = await extractor.extract(msg)
+        facts, emotion, topics, is_learning, learning_info = await extractor.extract(msg)
         assert len(facts) == 1
         assert facts[0].fact_type == "goal"
         assert emotion is not None
@@ -61,7 +61,7 @@ class TestMessageExtractor:
             content="嗯"
         )
 
-        facts, emotion, topics = await extractor.extract(msg)
+        facts, emotion, topics, is_learning, learning_info = await extractor.extract(msg)
         assert len(facts) == 0
         assert emotion is None  # neutral 不保存
         assert len(topics) == 0
@@ -81,7 +81,7 @@ class TestMessageExtractor:
             content="随便说点什么"
         )
 
-        facts, emotion, topics = await extractor.extract(msg)
+        facts, emotion, topics, is_learning, learning_info = await extractor.extract(msg)
         assert len(facts) == 0
         assert emotion is None
         assert len(topics) == 0
@@ -106,6 +106,6 @@ class TestMessageExtractor:
             content="今天心情不错"
         )
 
-        facts, emotion, topics = await extractor.extract(msg)
+        facts, emotion, topics, is_learning, learning_info = await extractor.extract(msg)
         assert emotion is not None
         assert emotion.emotion == "happy"

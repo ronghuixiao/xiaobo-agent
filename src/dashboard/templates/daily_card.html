@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小柏日报</title>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+  background:#e8e0d4;display:flex;flex-direction:column;align-items:center;
+  padding:24px 16px;min-height:100vh;
+}
+.controls{margin-bottom:20px;display:flex;gap:12px}
+.btn{padding:10px 28px;border-radius:24px;border:none;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+.btn-save{background:linear-gradient(135deg,#8B6914,#A0522D);color:#fff;box-shadow:0 4px 12px rgba(139,105,20,.3)}
+.btn-save:hover{transform:translateY(-2px)}
+.btn-refresh{background:#fff;color:#8B6914;border:1px solid #d4c5a9}
+
+.card-wrapper{width:520px;max-width:100%}
+.card{
+  width:520px;background:#fdf8f0;border-radius:12px;overflow:hidden;
+  box-shadow:0 8px 32px rgba(0,0,0,.1),0 2px 8px rgba(0,0,0,.05);
+  background-image:linear-gradient(rgba(200,180,160,.1) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(200,180,160,.06) 1px,transparent 1px);
+  background-size:20px 20px;background-color:#fdf8f0;
+}
+.washi{width:180px;height:24px;margin:0 auto;
+  background:repeating-linear-gradient(90deg,rgba(240,180,180,.55),rgba(240,180,180,.55) 5px,rgba(255,220,220,.55) 5px,rgba(255,220,220,.55) 10px);
+  transform:rotate(-0.8deg);border-radius:2px;position:relative;z-index:2}
+.ct{padding:16px 36px 32px;position:relative;z-index:2}
+
+/* 日期 */
+.da{text-align:center;margin-bottom:6px;padding-top:4px}
+.da-main{font-size:24px;font-weight:700;color:#3a3028;letter-spacing:1px}
+.da-sub{font-size:12px;color:#a09080;margin-top:3px;letter-spacing:3px}
+
+/* 屏幕时间 */
+.st{text-align:center;margin:16px 0 20px}
+.st-num{font-size:48px;font-weight:900;color:#3a3028;line-height:1}
+.st-num .u{font-size:18px;font-weight:600}
+.st-lbl{font-size:11px;color:#a09080;margin-top:4px;letter-spacing:6px}
+
+/* 进度条 */
+.bars{margin-bottom:20px}
+.br{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.br-ico{font-size:16px;width:24px;text-align:center;flex-shrink:0}
+.br-nm{font-size:12px;color:#3a3028;font-weight:600;width:32px;flex-shrink:0}
+.br-bg{flex:1;height:14px;background:rgba(0,0,0,.04);border-radius:7px;overflow:hidden}
+.br-fl{height:100%;border-radius:7px}
+.br-tm{font-size:11px;color:#a09080;width:48px;text-align:right;flex-shrink:0;font-weight:500}
+
+/* 分区 */
+.sec{margin:20px 0 0}
+.sec-hd{font-size:13px;font-weight:600;color:#3a3028;margin-bottom:10px;display:flex;align-items:center;gap:5px}
+.sec-hd .i{font-size:15px}
+
+/* === 图谱区域 === */
+/* 话题气泡图谱 */
+.bubble-net{position:relative;height:160px;margin:8px 0;background:rgba(0,0,0,.015);border-radius:12px;overflow:hidden}
+.bubble{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;text-align:center;line-height:1.2;
+  box-shadow:0 3px 12px rgba(0,0,0,.1);transition:transform .2s;cursor:default;
+  padding:4px;word-break:break-all}
+.bubble:hover{transform:scale(1.08)}
+.bubble .cnt{position:absolute;top:-4px;right:-4px;background:rgba(255,255,255,.92);
+  color:#3a3028;font-size:10px;font-weight:800;width:18px;height:18px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+
+/* 关键词标签栏 */
+.kw-bar{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.kw{padding:4px 12px;border-radius:14px;font-size:12px;font-weight:600;
+  border:1.5px solid rgba(0,0,0,.08);background:rgba(255,255,255,.7);color:#3a3028}
+
+/* 所学 - 卡片式 */
+.learn-cards{display:flex;flex-direction:column;gap:8px}
+.lc{padding:12px 16px;background:rgba(255,255,255,.6);border-radius:10px;border:1px solid rgba(0,0,0,.05)}
+.lc-topic{font-size:13px;font-weight:600;color:#3a3028;margin-bottom:6px}
+.lc-kws{display:flex;flex-wrap:wrap;gap:4px}
+.lc-kw{padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600}
+
+/* 心情 - 曲线图 */
+.mood-chart{position:relative;height:100px;margin:8px 0;background:rgba(0,0,0,.015);border-radius:12px;overflow:hidden}
+.mood-chart canvas{width:100%!important;height:100%!important}
+.mood-flow{display:flex;align-items:center;justify-content:center;gap:0;padding:8px 0;flex-wrap:wrap}
+.mood-pt{display:flex;flex-direction:column;align-items:center;min-width:60px}
+.mood-emo{font-size:28px;margin-bottom:2px}
+.mood-lbl{font-size:11px;color:#5a4a3a;font-weight:500}
+.mood-tm{font-size:10px;color:#a09080}
+.mood-arr{color:#c4b8a8;font-size:16px;margin:0 2px}
+
+/* 小总结 */
+.quote{text-align:center;margin-top:20px;padding:14px 16px;
+  background:rgba(139,105,20,.03);border-radius:10px;border-left:3px solid rgba(139,105,20,.2)}
+.quote-txt{font-size:13px;color:#3a3028;line-height:2;text-align:center}
+.quote-fire{text-align:center;font-size:14px;margin-top:6px;opacity:.5}
+
+.empty{text-align:center;color:#c4b8a8;padding:32px;font-size:14px}
+.hint{text-align:center;color:#a09080;font-size:11px;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="controls">
+  <button class="btn btn-save" id="saveBtn" onclick="saveImage()">📥 保存为图片</button>
+  <button class="btn btn-refresh" onclick="location.reload()">🔄 刷新</button>
+</div>
+<div class="card-wrapper">
+  <div class="card" id="report-card">
+    <div class="washi"></div>
+    <div class="ct" id="ct"><div class="empty">加载中...</div></div>
+  </div>
+</div>
+<div class="hint">保存后可直接发小红书</div>
+
+<script>
+var catCfg={'学习':{ico:'📚',c:'#E8853D'},'社交':{ico:'👥',c:'#4CAF50'},'娱乐':{ico:'🎮',c:'#E06090'},'工具':{ico:'⚙️',c:'#607D8B'}};
+var catKW={'学习':['class.in','学习','课堂','网课','mooc','慕课','ted','多邻国','扇贝','百词斩','墨墨','有道','欧路','得到','喜马拉雅','微信读书','kindle','番茄','forest'],
+  '社交':['微信','qq','微博','telegram','signal','whatsapp','钉钉','飞书','slack','discord','小红书','探探','soul'],
+  '娱乐':['抖音','快手','bilibili','b站','哔哩哔哩','爱奇艺','优酷','腾讯视频','netflix','youtube','网易云','qq音乐','酷狗','酷我','spotify','王者荣耀','原神','和平精英','英雄联盟','游戏'],
+  '工具':['浏览器','chrome','safari','桌面','launcher','日历','时钟','设置','文件','相机','相册','地图','天气','计算器','备忘录','小柏']};
+function guessCat(n,p){var t=(n+' '+p).toLowerCase();for(var c in catKW)for(var k of catKW[c])if(t.indexOf(k.toLowerCase())>=0)return c;return '工具'}
+function fmt(s){var h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h>0?h+'h '+m+'m':m+'min'}
+function esc(s){return(s||'').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;')}
+
+var now=new Date();
+var wk=['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
+var mn=['','一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
+var doy=Math.floor((now-new Date(now.getFullYear(),0,0))/86400000);
+
+// 话题气泡图谱 - 力导向布局
+function renderBubbleNet(container, topics){
+  if(!topics||topics.length===0){container.innerHTML='<div style="text-align:center;color:#c4b8a8;padding:40px;font-size:13px">暂无对话主题</div>';return}
+  var W=container.clientWidth||440,H=container.clientHeight||160;
+  var colors=['#8B6914','#A0522D','#6B8E23','#CD853F','#B8860B','#D2691E','#BC8F8F','#8FBC8F'];
+  var maxC=topics[0].count||1;
+  // 初始随机位置
+  var nodes=topics.map(function(t,i){
+    var r=18+(t.count/maxC)*22;
+    return{kw:t.keyword,count:t.count,r:r,
+      x:W/2+(Math.random()-.5)*W*.6,y:H/2+(Math.random()-.5)*H*.5,
+      vx:0,vy:0,color:colors[i%colors.length]};
+  });
+  // 力导向模拟
+  for(var iter=0;iter<150;iter++){
+    for(var i=0;i<nodes.length;i++){
+      for(var j=i+1;j<nodes.length;j++){
+        var a=nodes[i],b=nodes[j];
+        var dx=a.x-b.x,dy=a.y-b.y,dist=Math.sqrt(dx*dx+dy*dy)||1;
+        var minD=a.r+b.r+8;
+        if(dist<minD){var f=(minD-dist)/dist*.5;a.x+=dx*f;a.y+=dy*f;b.x-=dx*f;b.y-=dy*f}
+        var rep=800/(dist*dist);var fx=dx/dist*rep,fy=dy/dist*rep;
+        a.x+=fx;a.y+=fy;b.x-=fx;b.y-=fy;
+      }
+      // 中心引力
+      nodes[i].vx+=(W/2-nodes[i].x)*.01;nodes[i].vy+=(H/2-nodes[i].y)*.01;
+      nodes[i].x+=nodes[i].vx;nodes[i].y+=nodes[i].vy;
+      nodes[i].vx*=.85;nodes[i].vy*=.85;
+      nodes[i].x=Math.max(nodes[i].r,Math.min(W-nodes[i].r,nodes[i].x));
+      nodes[i].y=Math.max(nodes[i].r,Math.min(H-nodes[i].r,nodes[i].y));
+    }
+  }
+  // 绘制连线
+  var svg='<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">';
+  for(var i=0;i<nodes.length;i++)for(var j=i+1;j<nodes.length;j++){
+    var a=nodes[i],b=nodes[j],dist=Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2);
+    if(dist<200)svg+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="rgba(139,105,20,${.08+.12*(1-dist/200)})" stroke-width="1.5"/>`;
+  }
+  svg+='</svg>';
+  // 绘制气泡
+  var html=svg;
+  for(var i=0;i<nodes.length;i++){
+    var n=nodes[i];
+    html+=`<div class="bubble" style="left:${n.x-n.r}px;top:${n.y-n.r}px;width:${n.r*2}px;height:${n.r*2}px;background:${n.color};font-size:${Math.max(10,n.r*.45)}px">
+      ${esc(n.kw)}<span class="cnt">${n.count}</span></div>`;
+  }
+  container.innerHTML=html;
+}
+
+// 心情曲线 - canvas绘制
+function renderMoodChart(canvas, emotions){
+  if(!emotions||emotions.length===0){canvas.parentElement.innerHTML='<div style="text-align:center;color:#c4b8a8;padding:30px;font-size:13px">暂无心情记录</div>';return}
+  var ctx=canvas.getContext('2d');
+  var W=canvas.parentElement.clientWidth||440;
+  var H=100;
+  canvas.width=W*2;canvas.height=H*2;canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.scale(2,2);
+  // 数据点
+  var pts=emotions.map(function(e,i){
+    return{x:40+i*((W-60)/Math.max(emotions.length-1,1)),y:H-20-(e.intensity||.5)*(H-40),emotion:e.emotion,time:e.time};
+  });
+  // 渐变填充
+  var grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'rgba(139,105,20,.15)');grad.addColorStop(1,'rgba(139,105,20,.01)');
+  ctx.beginPath();ctx.moveTo(pts[0].x,H-10);
+  for(var i=0;i<pts.length;i++){
+    if(i===0){ctx.lineTo(pts[i].x,pts[i].y)}else{
+      var cp1x=(pts[i-1].x+pts[i].x)/2,cp1y=pts[i-1].y;
+      var cp2x=(pts[i-1].x+pts[i].x)/2,cp2y=pts[i].y;
+      ctx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,pts[i].x,pts[i].y);
+    }
+  }
+  ctx.lineTo(pts[pts.length-1].x,H-10);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+  // 曲线
+  ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
+  for(var i=1;i<pts.length;i++){
+    var cp1x=(pts[i-1].x+pts[i].x)/2,cp1y=pts[i-1].y;
+    var cp2x=(pts[i-1].x+pts[i].x)/2,cp2y=pts[i].y;
+    ctx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,pts[i].x,pts[i].y);
+  }
+  ctx.strokeStyle='#8B6914';ctx.lineWidth=2;ctx.stroke();
+  // 点和标签
+  var emoEmoji={happy:'😊',sad:'😢',angry:'😠',anxious:'😰',calm:'😌',excited:'🤩',tired:'😴',neutral:'😐',surprised:'😲',worried:'😟'};
+  for(var i=0;i<pts.length;i++){
+    ctx.beginPath();ctx.arc(pts[i].x,pts[i].y,4,0,Math.PI*2);
+    ctx.fillStyle='#8B6914';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+    // 情绪标签
+    ctx.fillStyle='#5a4a3a';ctx.font='500 10px "Noto Sans SC",sans-serif';ctx.textAlign='center';
+    ctx.fillText(emoEmoji[pts[i].emotion]||'',pts[i].x,pts[i].y-10);
+    // 时间
+    ctx.fillStyle='#a09080';ctx.font='10px "Noto Sans SC",sans-serif';
+    ctx.fillText(pts[i].time||'',pts[i].x,H-4);
+  }
+}
+
+// 关键词色板
+var kwColors=[
+  {bg:'rgba(139,105,20,.1)',bd:'rgba(139,105,20,.25)',c:'#6b5344'},
+  {bg:'rgba(107,142,35,.1)',bd:'rgba(107,142,35,.25)',c:'#4a6b1a'},
+  {bg:'rgba(210,105,30,.1)',bd:'rgba(210,105,30,.25)',c:'#a0522d'},
+  {bg:'rgba(188,143,143,.1)',bd:'rgba(188,143,143,.25)',c:'#8b6969'},
+  {bg:'rgba(107,142,35,.1)',bd:'rgba(107,142,35,.2)',c:'#6b8e23'},
+];
+
+Promise.all([
+  fetch('/api/daily-summary?_='+Date.now(),{cache:'no-store'}).then(r=>r.json()).catch(()=>({})),
+  fetch('/api/phone/summary?_='+Date.now(),{cache:'no-store'}).then(r=>r.json()).catch(()=>({}))
+]).then(([sm,ph])=>{
+  var el=document.getElementById('ct'),h='';
+
+  // 日期
+  h+=`<div class="da"><div class="da-main">${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日</div>
+    <div class="da-sub">${wk[now.getDay()]} · ${mn[now.getMonth()+1]} · 第${doy}天</div></div>`;
+
+  // 屏幕时间
+  var ts=ph.total_screen_time||0;
+  if(ts>0){var hh=Math.floor(ts/3600),mm=Math.floor((ts%3600)/60);
+    h+=`<div class="st"><div class="st-num">${hh>0?hh+'<span class="u">h</span> ':''}${mm}<span class="u">min</span></div><div class="st-lbl">总 屏 幕 时 间</div></div>`;
+  }else{h+=`<div class="st"><div class="st-num" style="font-size:22px;color:#c4b8a8">学习中，手机息屏 📵</div><div class="st-lbl">总 屏 幕 时 间</div></div>`}
+
+  // 进度条
+  var apps=ph.app_breakdown||[];
+  if(apps.length>0&&ts>0){
+    var ct2={};for(var a of apps){var c=guessCat(a.name||'',a.package||'');ct2[c]=(ct2[c]||0)+(a.duration||0)}
+    var cl=[];for(var c in ct2)cl.push({n:c,t:ct2[c]});cl.sort((a,b)=>b.t-a.t);
+    var mx=cl[0]?cl[0].t:1;
+    h+='<div class="bars">';
+    for(var x of cl){var info=catCfg[x.n]||{ico:'📱',c:'#888'};h+=`<div class="br"><span class="br-ico">${info.ico}</span><span class="br-nm">${x.n}</span><div class="br-bg"><div class="br-fl" style="width:${Math.round(x.t/mx*100)}%;background:${info.c}"></div></div><span class="br-tm">${fmt(x.t)}</span></div>`}
+    h+='</div>';
+  }
+
+  // ====== 今日对话主题 - 气泡图谱 ======
+  if(sm.today_topics&&sm.today_topics.length>0){
+    h+=`<div class="sec"><div class="sec-hd"><span class="i">💬</span> 今日对话主题</div>
+      <div class="bubble-net" id="bubbleNet"></div>
+      <div class="kw-bar" id="topicKw"></div></div>`;
+  }
+
+  // ====== 今日所学 - 关键词卡片 ======
+  if(sm.today_learning&&sm.today_learning.length>0){
+    h+=`<div class="sec"><div class="sec-hd"><span class="i">✏️</span> 今日所学</div><div class="learn-cards" id="learnCards"></div>
+      <div class="kw-bar" id="learnKw"></div></div>`;
+  }
+
+  // ====== 今日心境 - 曲线图 ======
+  if(sm.emotions_timeline&&sm.emotions_timeline.length>0){
+    h+=`<div class="sec"><div class="sec-hd"><span class="i">🌻</span> 今日心境</div>
+      <div class="mood-chart"><canvas id="moodCanvas"></canvas></div>
+      <div class="mood-flow" id="moodFlow"></div></div>`;
+  }
+
+  // 小总结
+  if(sm.summary_text){
+    h+=`<div class="quote"><div class="quote-txt">${esc(sm.summary_text).split('\n').join('<br>')}</div><div class="quote-fire">🔥</div></div>`;
+  }
+
+  if(!h.includes('sec'))h+='<div class="empty">今天还没有数据，和小柏聊聊天吧 😊</div>';
+  el.innerHTML=h;
+
+  // 渲染气泡图谱
+  if(sm.today_topics&&sm.today_topics.length>0){
+    var bn=document.getElementById('bubbleNet');
+    if(bn)renderBubbleNet(bn,sm.today_topics);
+    // 关键词标签
+    var kb=document.getElementById('topicKw');
+    if(kb){var kh='<span style="font-size:11px;color:#a09080;margin-right:4px">关键词:</span>';
+      for(var i=0;i<sm.today_topics.length;i++){var kc=kwColors[i%kwColors.length];kh+=`<span class="kw" style="background:${kc.bg};border-color:${kc.bd};color:${kc.c}">${esc(sm.today_topics[i].keyword)}</span>`}
+      kb.innerHTML=kh}
+  }
+
+  // 渲染所学卡片
+  if(sm.today_learning&&sm.today_learning.length>0){
+    var lc=document.getElementById('learnCards');
+    if(lc){var lch='';var lkwAll=[];
+      for(var i=0;i<sm.today_learning.length;i++){
+        var l=sm.today_learning[i];
+        lch+=`<div class="lc"><div class="lc-topic">${esc(l.topic)}</div><div class="lc-kws">`;
+        if(l.keywords)for(var k=0;k<l.keywords.length;k++){
+          var kc=kwColors[k%kwColors.length];
+          lch+=`<span class="lc-kw" style="background:${kc.bg};color:${kc.c}">${esc(l.keywords[k])}</span>`;
+          if(lkwAll.indexOf(l.keywords[k])<0)lkwAll.push(l.keywords[k]);
+        }
+        lch+='</div></div>'}
+      lc.innerHTML=lch;
+      var lkb=document.getElementById('learnKw');
+      if(lkb&&lkwAll.length>0){var lkh='<span style="font-size:11px;color:#a09080;margin-right:4px">关键词:</span>';
+        for(var i=0;i<lkwAll.length;i++){var kc=kwColors[i%kwColors.length];lkh+=`<span class="kw" style="background:${kc.bg};border-color:${kc.bd};color:${kc.c}">${esc(lkwAll[i])}</span>`}
+        lkb.innerHTML=lkh}
+  }
+
+  // 渲染心情
+  if(sm.emotions_timeline&&sm.emotions_timeline.length>0){
+    var cv=document.getElementById('moodCanvas');
+    if(cv)renderMoodChart(cv,sm.emotions_timeline);
+    var mf=document.getElementById('moodFlow');
+    if(mf){var seen={},un=[];for(var e of sm.emotions_timeline){if(!seen[e.emotion]){seen[e.emotion]=true;un.push(e.emotion)}}
+      var emoE={happy:'😊',sad:'😢',angry:'😠',anxious:'😰',calm:'😌',excited:'🤩',tired:'😴',neutral:'😐',surprised:'😲',worried:'😟'};
+      mf.innerHTML=un.map((e,i)=>(i>0?'<span class="mood-arr">→</span>':'')+`<div class="mood-pt"><div class="mood-emo">${emoE[e]||'❓'}</div><div class="mood-lbl">${e}</div></div>`).join('')}
+  }
+});
+
+function saveImage(){
+  var b=document.getElementById('saveBtn');b.disabled=true;b.textContent='⏳ 生成中...';
+  html2canvas(document.getElementById('report-card'),{backgroundColor:'#fdf8f0',scale:2,useCORS:true,logging:false}).then(c=>{
+    var l=document.createElement('a');l.download='小柏日报_'+now.getFullYear()+(now.getMonth()+1).toString().padStart(2,'0')+now.getDate().toString().padStart(2,'0')+'.png';
+    l.href=c.toDataURL('image/png');l.click();b.disabled=false;b.textContent='✅ 已保存!';setTimeout(()=>b.textContent='📥 保存为图片',2000);
+  }).catch(()=>{b.disabled=false;b.textContent='❌ 长按截图'});
+}
+</script>
+</body>
+</html>

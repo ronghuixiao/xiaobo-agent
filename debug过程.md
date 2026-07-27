@@ -2337,7 +2337,7 @@ for line in clean_response.split('\n'):
 
 ---
 
-### 问题31：系统任务被重复创建为个人任务（LLM 幻觉）
+### 问题32：系统任务被重复创建为个人任务（LLM 幻觉）
 
 **日期**：2026-07-24
 
@@ -2401,3 +2401,203 @@ today-2026-07-24-2200   | 每日日报生成        | type=builtin | created=00:
 - 删除了 `买菜；做饭；散步`（测试数据）
 - 删除了 `东西还没收拾`、`收拾行李`（测试数据）
 - 仅保留 `准备吃魔芋面`（用户真实提到的信息）
+
+---
+
+## Issue #42: 上下文记忆修复 + 学习记录自动写入 + 知识图谱Dashboard（2026-07-25）
+
+### 背景
+
+三部分系统性改进，解决以下核心问题：
+1. **上下文记忆缺失**：`_get_recent_context()` 方法存在但从未被调用，LLM 每次只看到当前一条消息
+2. **学习记录空置**：`save_learning_record()` 和 `learning_log` 表存在但从未写入数据
+3. **Dashboard 缺少知识维度**：没有学习记录的可视化展示
+
+### Part A：修复上下文记忆
+
+**问题**：LLM 每次对话都是"失忆"状态
+
+`handler.py` 中 `_get_recent_context()` 在第425行定义，但 `handle_message()` 和 `stream_handle_message()` 都没有调用它。LLM 收到的消息只有 system prompt + 当前一条用户消息，没有任何历史对话。
+
+**修复**：
+1. `SYSTEM_PROMPT_TEMPLATE` 新增 `{recent_context}` 占位符（放在 `{related_memories}` 之后）
+2. `handle_message()` 和 `stream_handle_message()` 都调用 `_get_recent_context()` 并注入到 format()
+
+**效果**：LLM 能看到最近20条跨会话对话（带完整日期时间戳）
+
+### Part B：学习内容自动记录
+
+**修复**：
+1. 新增 `_extract_and_save_learning()` 方法 — 用LLM提取topic/content/understanding/related_topics/tags，写入learning_log
+2. 在信息提取阶段调用 — 只有学习相关消息才触发
+3. 改写 `_get_learning_context()` — 从learning_log表读取
+4. 系统提示新增 `{learning_context}` 占位符
+
+### Part C：Dashboard知识图谱 + 复习提问
+
+**Dashboard修改**：
+1. 新增「📚 知识」统计卡片（第5个）
+2. 新增学习记录模态框（知识网络图 + 记录列表）
+
+**API路由新增**：
+- GET /api/learning/records — 学习记录列表
+- GET /api/learning/graph — 知识网络图数据
+- GET /api/learning/stats — 学习统计
+
+**复习提问**：系统提示学习模式新增复习指令（每3-4次提到同主题时提问一次）
+
+### 修改文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| src/companion/handler.py | Part A: 注入recent_context; Part B: 新增_extract_and_save_learning + 改写_get_learning_context; Part C: 复习指令 |
+| src/api/routes.py | Part C: 新增3个learning API端点 |
+| src/dashboard/templates/dashboard.html | Part C: 新增知识卡片 + 知识网络图模态框 |
+
+### 验证结果
+
+```
+✅ 语法检查通过
+✅ 服务重启成功
+✅ /api/health 正常
+✅ /api/learning/stats 返回 {"total": 0, "topics": 0}
+✅ /api/learning/records 返回空列表
+✅ learning_log 表为空，等待后续对话自动写入
+```
+
+
+---
+
+## 问题43：LLM容错机制缺失 — 无兜底、无熔断、无缓存（2026-07-27）
+
+**日期**: 2026-07-27
+
+**现象**:
+1. LLM服务宕机时，用户发送消息后无限等待，没有任何回复
+2. LLM连续失败时，系统不断重试，造成雪崩效应
+3. 相同问题每次都调LLM，浪费token和时间
+
+**根因分析**:
+
+系统有3个防护缺口：
+
+| 防护层 | 现有 | 缺失 |
+|--------|------|------|
+| 兜底 | 指数退避重试（3次） | 重试全部失败后没有兜底回复，用户无限等待 |
+| 熔断 | 无 | 连续失败时不断调用LLM，加重故障 |
+| 缓存 | 无 | 相同query每次都调LLM，浪费资源 |
+
+**修复方案**: 新建 `src/llm/resilience.py`，实现三层防护
+
+### 1. 兜底（Fallback）
+
+```python
+class LLMResilience:
+    FALLBACK_MESSAGES = [
+        "我现在有点累，稍后再聊吧 😴",
+        "网络好像不太稳定，等一下再说？",
+        "抱歉，我暂时无法回复，请稍后再试。",
+    ]
+    
+    async def chat(self, messages, temperature=0.7):
+        try:
+            response = await self.llm.chat(messages, temperature=temperature)
+            return response
+        except Exception as e:
+            logger.error(f"LLM调用失败: {e}")
+            return ChatResponse(content=self._get_fallback())  # 轮询兜底提示
+```
+
+### 2. 熔断器（Circuit Breaker）
+
+```python
+class CircuitBreaker:
+    """状态机: CLOSED → OPEN → HALF_OPEN → CLOSED"""
+    
+    def __init__(self, failure_threshold=5, recovery_timeout=60):
+        self.failure_threshold = failure_threshold  # 连续失败5次触发熔断
+        self.recovery_timeout = recovery_timeout    # 60秒后进入半开状态
+    
+    def can_execute(self) -> bool:
+        if self.state == CircuitState.CLOSED:
+            return True
+        if self.state == CircuitState.OPEN:
+            # 冷却时间到了，进入半开
+            if time.time() - self.last_failure_time >= self.recovery_timeout:
+                self.state = CircuitState.HALF_OPEN
+                return True
+            return False
+        if self.state == CircuitState.HALF_OPEN:
+            return True  # 允许一次试探
+```
+
+**状态流转**：
+```
+CLOSED（正常）
+  ↓ 连续失败5次
+OPEN（熔断，拒绝所有调用）
+  ↓ 60秒冷却
+HALF_OPEN（允许1次试探）
+  ↓ 试探成功 → CLOSED
+  ↓ 试探失败 → OPEN
+```
+
+### 3. 缓存层（ResponseCache）
+
+```python
+class ResponseCache:
+    """LRU + TTL 缓存"""
+    
+    def __init__(self, max_size=100, ttl=3600):
+        self.max_size = max_size  # 最多100条
+        self.ttl = ttl            # 1小时过期
+    
+    def get(self, messages, temperature) -> Optional[str]:
+        key = self._make_key(messages, temperature)
+        if key in self._cache:
+            entry = self._cache[key]
+            if time.time() - entry["timestamp"] < self.ttl:
+                return entry["response"]  # 缓存命中
+        return None
+```
+
+**设计决策**:
+- 缓存key = messages内容前200字符 + temperature的MD5
+- 只缓存非流式调用（流式输出不适合缓存）
+- LRU淘汰：满了删最旧的
+- TTL过期：1小时后自动失效
+
+### 4. 集成到Handler
+
+```python
+class ConversationHandler:
+    def __init__(self, settings, llm, memory, ...):
+        self.llm = llm
+        # LLM 容错层：兜底 + 熔断 + 缓存
+        self.llm_resilient = LLMResilience(llm)
+        # extractor 也使用容错层
+        self.extractor = MessageExtractor(self.llm_resilient)
+    
+    async def handle_message(self, user_message):
+        # 所有LLM调用都走容错层
+        response = await self.llm_resilient.chat(messages, temperature=temperature)
+        # 如果LLM宕机，response.content = "我现在有点累，稍后再聊吧 😴"
+```
+
+**修改的文件**:
+- `src/llm/resilience.py` — 新建，三层容错（兜底+熔断+缓存）
+- `src/companion/handler.py` — 集成容错层，LLM调用全部走 `llm_resilient`
+
+**验证结果**:
+```
+✅ 测试通过: test_extractor.py (4/4)
+✅ 熔断器状态机: CLOSED → OPEN → HALF_OPEN → CLOSED
+✅ 缓存命中: 相同query返回缓存，0 LLM调用
+✅ 兜底回复: LLM失败时返回友好提示
+```
+
+**教训**:
+1. **LLM不是永远可用的** — 网络抖动、API限流、服务宕机都会导致调用失败
+2. **重试不够** — 重试3次后如果没有兜底，用户会一直等
+3. **熔断是必须的** — 连续失败时继续调用会加重故障，应该快速失败
+4. **缓存能省很多** — 个人助手场景下，相同问题出现的概率不低

@@ -48,7 +48,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .card-title .icon { font-size: 1.2em; }
 
 /* Stats - clickable cards */
-.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
 .stat { text-align: center; padding: 20px 10px; background: linear-gradient(135deg, #f8fafc, #f0f4ff); border-radius: 14px; transition: all .25s ease; cursor: pointer; border: 1px solid transparent; position: relative; overflow: hidden; }
 .stat::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--primary), #764ba2); opacity: 0; transition: opacity .25s; }
 .stat:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); border-color: var(--primary); }
@@ -59,6 +59,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .stat .hint { font-size: .65em; color: var(--primary); margin-top: 4px; opacity: 0; transition: opacity .25s; }
 .stat:hover .hint { opacity: 1; }
 @media(max-width:600px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+@media(min-width:601px) and (max-width:900px) { .stats-row { grid-template-columns: repeat(3, 1fr); } }
 
 /* Modal */
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.5); z-index: 1000; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(4px); }
@@ -182,6 +183,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .loading::after { content: ''; display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; margin-left: 8px; vertical-align: middle; }
 .refresh-btn { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: .8em; color: var(--text2); cursor: pointer; transition: all .2s; }
 .refresh-btn:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+/* Daily Summary */
+.ds-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+@media(max-width:768px) { .ds-grid { grid-template-columns: 1fr; } }
+.ds-section { margin-bottom: 16px; }
+.ds-section-title { font-size: .8em; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.ds-topic-cloud { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ds-topic-tag { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border-radius: 20px; font-weight: 600; transition: all .2s; cursor: default; }
+.ds-topic-tag:hover { transform: scale(1.05); box-shadow: var(--shadow); }
+.ds-topic-count { font-size: .7em; opacity: .7; }
+.ds-learning-item { padding: 12px; background: #fafafa; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 8px; }
+.ds-learning-topic { font-weight: 600; font-size: .9em; color: var(--text); margin-bottom: 6px; }
+.ds-keyword-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: .75em; font-weight: 600; margin: 2px; }
+.ds-keyword-blue { background: #dbeafe; color: #1e40af; }
+.ds-keyword-green { background: #d1fae5; color: #065f46; }
+.ds-keyword-purple { background: #ede9fe; color: #5b21b6; }
+.ds-keyword-amber { background: #fef3c7; color: #92400e; }
+.ds-keyword-pink { background: #fce7f3; color: #9d174d; }
+.ds-summary-box { background: linear-gradient(135deg, #f8fafc, #f0f4ff); border-radius: 12px; padding: 16px; border: 1px solid var(--border); line-height: 1.8; font-size: .9em; color: var(--text); }
+.ds-keywords-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.ds-empty { text-align: center; color: var(--text3); padding: 20px; font-size: .85em; }
 </style>
 </head>
 <body>
@@ -224,7 +245,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
         <div class="label">关联索引</div>
         <div class="hint">点击查看 →</div>
       </div>
+      <div class="stat" onclick="openModal('learning')">
+        <div class="icon-big">📚</div>
+        <div class="num" id="s-learn">-</div>
+        <div class="label">知识主题</div>
+        <div class="hint">点击查看 →</div>
+      </div>
     </div>
+  </div>
+
+
+  <!-- 今日日报可视化 -->
+  <div class="card grid-full" style="margin-bottom:16px" id="daily-summary-card">
+    <div class="card-title"><span class="icon">📊</span>今日日报<span style="flex:1"></span><a href="/daily-card" target="_blank" style="font-size:.8em;color:var(--primary);text-decoration:none;font-weight:500;margin-right:12px">📷 保存为图片</a><span style="font-size:.75em;color:var(--text3);font-weight:400" id="ds-date"></span></div>
+    <div id="daily-summary-body"><div class="loading">加载中</div></div>
   </div>
 
   <div class="grid">
@@ -385,6 +419,9 @@ fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
   document.getElementById('s-facts').textContent = d.facts||0;
   document.getElementById('s-emo').textContent = d.emotions||0;
   document.getElementById('s-assoc').textContent = d.associations||0;
+}).catch(function(){});
+fetch('/api/learning/stats').then(function(r){return r.json()}).then(function(d){
+  document.getElementById('s-learn').textContent = d.topics||0;
 }).catch(function(){});
 
 // Emotions
@@ -566,6 +603,14 @@ var modalConfig = {
       { key: 'all', label: '📋 全部', api: '/api/emotions' }
     ]
   },
+  learning: {
+    title: '📚 知识学习',
+    chartTab: { key: 'chart', label: '🕸️ 知识图谱' },
+    listTabs: [
+      { key: 'all', label: '📋 全部记录', api: '/api/learning/records' },
+      { key: 'stats', label: '📊 统计', api: '/api/learning/stats' }
+    ]
+  },
   associations: {
     title: '🔗 关联索引',
     chartTab: { key: 'chart', label: '📊 图表' },
@@ -650,6 +695,7 @@ function loadChartView() {
   else if (type === 'facts') loadFactsChart();
   else if (type === 'emotions') loadEmotionsChart();
   else if (type === 'associations') loadAssociationsChart();
+  else if (type === 'learning') loadLearningChart();
 }
 
 function loadConversationsChart() {
@@ -886,6 +932,61 @@ function loadAssociationsChart() {
 
     // Draw force-directed network graph
     renderForceGraph(graphData);
+  });
+}
+
+function loadLearningChart() {
+  var body = document.getElementById('modal-body');
+  Promise.all([
+    fetch('/api/learning/graph?_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {nodes:[],edges:[]}}),
+    fetch('/api/learning/records?limit=50&_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {records:[],total:0}}),
+    fetch('/api/learning/stats?_=' + Date.now(), { cache: 'no-store' }).then(function(r){return r.json()}).catch(function(){return {total:0,topics:0,recent_topics:[]}})
+  ]).then(function(results) {
+    var graphData = results[0];
+    var recordsData = results[1];
+    var statsData = results[2];
+
+    var html = '';
+    // Stats summary
+    html += '<div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">';
+    html += '<div style="flex:1;min-width:120px;background:linear-gradient(135deg,#f0f4ff,#e8f5e9);padding:16px;border-radius:12px;text-align:center">';
+    html += '<div style="font-size:2em;font-weight:800;background:linear-gradient(135deg,#667eea,#10b981);-webkit-background-clip:text;-webkit-text-fill-color:transparent">' + (statsData.total||0) + '</div>';
+    html += '<div style="font-size:.8em;color:var(--text2);margin-top:4px">学习记录</div></div>';
+    html += '<div style="flex:1;min-width:120px;background:linear-gradient(135deg,#fef3c7,#fce7f3);padding:16px;border-radius:12px;text-align:center">';
+    html += '<div style="font-size:2em;font-weight:800;background:linear-gradient(135deg,#f59e0b,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent">' + (statsData.topics||0) + '</div>';
+    html += '<div style="font-size:.8em;color:var(--text2);margin-top:4px">知识主题</div></div>';
+    html += '</div>';
+
+    // Knowledge graph
+    if (graphData.nodes && graphData.nodes.length > 0) {
+      html += '<div class="chart-section-title">🕸️ 知识网络图</div>';
+      html += '<div style="margin-bottom:20px"><canvas id="learning-network" class="network-canvas" height="350"></canvas></div>';
+    }
+
+    // Recent records
+    html += '<div class="chart-section-title">📋 学习记录</div>';
+    if (recordsData.records && recordsData.records.length > 0) {
+      for (var i = 0; i < recordsData.records.length; i++) {
+        var r = recordsData.records[i];
+        var time = (r.created_at||'').substring(0, 10);
+        html += '<div class="detail-item">';
+        html += '<div class="meta"><span class="detail-badge badge-preference">' + esc(r.topic||'') + '</span>';
+        html += '<span>' + time + '</span>';
+        if (r.understanding) html += '<span style="color:var(--primary)">理解: ' + esc(r.understanding) + '</span>';
+        html += '</div>';
+        html += '<div class="content">' + esc(r.content||'') + '</div>';
+        if (r.tags) html += '<div style="margin-top:4px;font-size:.8em;color:var(--text3)">标签: ' + esc(r.tags) + '</div>';
+        html += '</div>';
+      }
+    } else {
+      html += '<div class="detail-empty">暂无学习记录</div>';
+    }
+    body.innerHTML = html;
+
+    // Render knowledge graph if nodes exist
+    if (graphData.nodes && graphData.nodes.length > 0) {
+      renderForceGraph(graphData);
+    }
   });
 }
 
@@ -1146,6 +1247,203 @@ function renderDetailItem(item, type) {
 
 // ESC to close modal
 document.addEventListener('keydown', function(e) { if(e.key === 'Escape') closeModal(); });
+
+// ========== 今日日报可视化 ==========
+function loadDailySummary() {
+  var el = document.getElementById('daily-summary-body');
+  if (!el) return;
+  
+  fetch('/api/daily-summary?_=' + Date.now(), { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var html = '';
+      
+      // 日期
+      var dateEl = document.getElementById('ds-date');
+      if (dateEl) {
+        var now = new Date();
+        dateEl.textContent = (now.getMonth()+1) + '月' + now.getDate() + '日';
+      }
+      
+      // 如果全部为空
+      if ((!d.today_topics || d.today_topics.length === 0) && 
+          (!d.today_learning || d.today_learning.length === 0) && 
+          (!d.emotions_timeline || d.emotions_timeline.length === 0) &&
+          !d.summary_text) {
+        el.innerHTML = '<div class="ds-empty">今天还没有数据，和小柏聊聊天吧 😊</div>';
+        return;
+      }
+      
+      html += '<div class="ds-grid">';
+      
+      // === 左列：今日对话主题 ===
+      html += '<div class="ds-section">';
+      html += '<div class="ds-section-title">💬 今日对话主题</div>';
+      if (d.today_topics && d.today_topics.length > 0) {
+        html += '<div class="ds-topic-cloud">';
+        var maxCount = d.today_topics[0].count || 1;
+        var colors = ['#667eea','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'];
+        var bgColors = ['#eef2ff','#d1fae5','#fef3c7','#fee2e2','#ede9fe','#fce7f3','#cffafe','#ecfcc9','#ffedd5','#e0e7ff'];
+        for (var i = 0; i < d.today_topics.length; i++) {
+          var t = d.today_topics[i];
+          var ratio = t.count / maxCount;
+          var fontSize = 0.75 + ratio * 0.6;
+          var ci = i % colors.length;
+          html += '<span class="ds-topic-tag" style="background:' + bgColors[ci] + ';color:' + colors[ci] + ';font-size:' + fontSize + 'em" title="' + (t.related_convos && t.related_convos[0] ? t.related_convos[0] : '') + '">';
+          html += esc(t.keyword);
+          html += '<span class="ds-topic-count">×' + t.count + '</span>';
+          html += '</span>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div class="ds-empty">暂无对话主题</div>';
+      }
+      html += '</div>';
+      
+      // === 中列：今日所学 ===
+      html += '<div class="ds-section">';
+      html += '<div class="ds-section-title">📚 今日所学</div>';
+      if (d.today_learning && d.today_learning.length > 0) {
+        for (var i = 0; i < d.today_learning.length; i++) {
+          var l = d.today_learning[i];
+          html += '<div class="ds-learning-item">';
+          html += '<div class="ds-learning-topic">' + esc(l.topic) + '</div>';
+          if (l.keywords && l.keywords.length > 0) {
+            var kwColors = ['ds-keyword-blue','ds-keyword-green','ds-keyword-purple','ds-keyword-amber','ds-keyword-pink'];
+            for (var k = 0; k < l.keywords.length; k++) {
+              html += '<span class="ds-keyword-badge ' + kwColors[k % kwColors.length] + '">' + esc(l.keywords[k]) + '</span>';
+            }
+          }
+          if (l.understanding) {
+            html += '<div style="font-size:.75em;color:var(--text3);margin-top:4px">理解度: ' + esc(l.understanding) + '</div>';
+          }
+          html += '</div>';
+        }
+      } else {
+        html += '<div class="ds-empty">今天还没有学习记录</div>';
+      }
+      html += '</div>';
+      
+      // === 右列：心情变化 ===
+      html += '<div class="ds-section">';
+      html += '<div class="ds-section-title">🎭 心情变化</div>';
+      if (d.emotions_timeline && d.emotions_timeline.length > 0) {
+        html += '<div style="position:relative;height:160px;margin-bottom:8px"><canvas id="ds-emotion-chart"></canvas></div>';
+        // 关键词标签
+        var emotionNames = [];
+        for (var i = 0; i < d.emotions_timeline.length; i++) {
+          var en = d.emotions_timeline[i].emotion;
+          if (emotionNames.indexOf(en) < 0) emotionNames.push(en);
+        }
+        html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+        var emoColors = {'happy':'#10b981','sad':'#6366f1','angry':'#ef4444','anxious':'#f59e0b','calm':'#06b6d4','excited':'#ec4899','tired':'#94a3b8','neutral':'#64748b','surprised':'#8b5cf6','worried':'#f97316'};
+        for (var i = 0; i < emotionNames.length; i++) {
+          var en = emotionNames[i];
+          var ec = emoColors[en] || '#667eea';
+          html += '<span class="ds-keyword-badge" style="background:' + ec + '20;color:' + ec + '">' + esc(en) + '</span>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div class="ds-empty">今天还没有心情记录</div>';
+      }
+      html += '</div>';
+      
+      html += '</div>'; // ds-grid end
+      
+      // === 今日小总结（全宽） ===
+      if (d.summary_text) {
+        html += '<div class="ds-section" style="margin-top:8px">';
+        html += '<div class="ds-section-title">📝 今日小总结</div>';
+        html += '<div class="ds-summary-box">' + esc(d.summary_text).split('\n').join('<br>') + '</div>';
+        html += '</div>';
+      }
+      
+      // === 底部关键词 bar ===
+      var allKeywords = [];
+      if (d.today_topics) {
+        for (var i = 0; i < Math.min(d.today_topics.length, 5); i++) {
+          allKeywords.push(d.today_topics[i].keyword);
+        }
+      }
+      if (d.today_learning) {
+        for (var i = 0; i < d.today_learning.length; i++) {
+          if (d.today_learning[i].keywords) {
+            for (var k = 0; k < d.today_learning[i].keywords.length; k++) {
+              if (allKeywords.indexOf(d.today_learning[i].keywords[k]) < 0) {
+                allKeywords.push(d.today_learning[i].keywords[k]);
+              }
+            }
+          }
+        }
+      }
+      if (allKeywords.length > 0) {
+        html += '<div class="ds-keywords-bar">';
+        html += '<span style="font-size:.75em;color:var(--text3);font-weight:600;margin-right:4px">🏷️ 关键词:</span>';
+        var kwColors2 = ['#667eea','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4'];
+        for (var i = 0; i < allKeywords.length; i++) {
+          var c = kwColors2[i % kwColors2.length];
+          html += '<span class="ds-keyword-badge" style="background:' + c + '15;color:' + c + ';border:1px solid ' + c + '30">' + esc(allKeywords[i]) + '</span>';
+        }
+        html += '</div>';
+      }
+      
+      el.innerHTML = html;
+      
+      // 绘制心情折线图
+      if (d.emotions_timeline && d.emotions_timeline.length > 0) {
+        var canvas = document.getElementById('ds-emotion-chart');
+        if (canvas) {
+          var ctx = canvas.getContext('2d');
+          var labels = d.emotions_timeline.map(function(e) { return e.time; });
+          var values = d.emotions_timeline.map(function(e) { return e.intensity || 0.5; });
+          var emoLabels = d.emotions_timeline.map(function(e) { return e.emotion; });
+          
+          new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: '情绪强度',
+                data: values,
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102,126,234,0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 5,
+                pointBackgroundColor: '#667eea',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                borderWidth: 2
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    title: function(items) { return items[0].label; },
+                    label: function(item) { return emoLabels[item.dataIndex] + ' (' + Math.round(item.raw * 100) + '%)'; }
+                  }
+                }
+              },
+              scales: {
+                y: { min: 0, max: 1, ticks: { display: false }, grid: { color: '#f1f5f9' } },
+                x: { grid: { display: false }, ticks: { font: { size: 10 } } }
+              }
+            }
+          });
+        }
+      }
+    })
+    .catch(function() {
+      el.innerHTML = '<div class="ds-empty">日报数据加载失败</div>';
+    });
+}
+
+// 页面加载时获取日报数据
+loadDailySummary();
 </script>
 </body>
 </html>
