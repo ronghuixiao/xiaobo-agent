@@ -662,7 +662,7 @@ async function sendMessage() {
 // Load history on page load
 async function loadHistory() {
   try {
-    const resp = await fetch('/api/chat/history?limit=30');
+    const resp = await fetch('/api/chat/history?limit=200');
     if (!resp.ok) return;
     const data = await resp.json();
     
