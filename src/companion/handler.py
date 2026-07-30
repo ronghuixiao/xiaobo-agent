@@ -156,9 +156,11 @@ class ConversationHandler:
         memory: MemoryDatabase,
         tool_registry=None,
         skill_registry=None,
+        embedding_llm=None,
     ):
         self.settings = settings
         self.llm = llm
+        self.embedding_llm = embedding_llm or llm
         # LLM 容错层：兜底 + 熔断 + 缓存
         from src.llm.resilience import LLMResilience
         self.llm_resilient = LLMResilience(llm)
@@ -599,7 +601,7 @@ class ConversationHandler:
         try:
             from src.memory.embedding_cache import EmbeddingCache
             from src.memory.bm25 import HybridRetriever
-            cache = EmbeddingCache(self.llm, self.memory)
+            cache = EmbeddingCache(self.embedding_llm, self.memory)
 
             # 1. 获取查询的 embedding
             query_emb = await cache.get_or_compute(

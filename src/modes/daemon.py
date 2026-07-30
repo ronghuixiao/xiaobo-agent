@@ -11,7 +11,7 @@ from src.companion.report_generator import ReportGenerator
 from src.companion.pattern_analyzer import PatternAnalyzer
 from src.companion.proactive import ProactiveEngine
 from src.companion.scheduler import CronScheduler
-from src.llm.factory import create_llm_provider
+from src.llm.factory import create_llm_provider, create_embedding_provider
 from src.memory.database import MemoryDatabase
 from src.companion.task_manager import TaskManager
 from src.companion.command_dispatcher import CommandDispatcher
@@ -59,7 +59,9 @@ async def daemon_mode(settings):
     skill_registry.register(MoodAnalysisSkill())
     logger.info(f"🎯 已注册 {len(skill_registry.list_skills())} 个 Skill")
 
-    handler = ConversationHandler(settings, llm, memory, tool_registry=tool_registry, skill_registry=skill_registry)
+    # 创建embedding专用的LLM (固定用Ollama)
+    embedding_llm = create_embedding_provider(settings.llm)
+    handler = ConversationHandler(settings, llm, memory, tool_registry=tool_registry, skill_registry=skill_registry, embedding_llm=embedding_llm)
 
     # 初始化聊天 API（供 /api/chat/history 使用）
     from src.api.chat import init_chat
