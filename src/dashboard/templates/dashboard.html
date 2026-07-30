@@ -7,11 +7,11 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 :root {
-  --bg: #f0f2f5;
+  --bg: #f8fafc;
   --card: #ffffff;
-  --primary: #667eea;
-  --primary-light: #eef2ff;
-  --primary-dark: #5a67d8;
+  --primary: #6366f1;
+  --primary-light: #e0e7ff;
+  --primary-dark: #4f46e5;
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -22,6 +22,27 @@
   --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
   --shadow-lg: 0 10px 40px rgba(0,0,0,.12);
   --radius: 16px;
+}
+
+/* 深色模式 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --primary: #818cf8;
+    --primary-light: #312e81;
+    --primary-dark: #6366f1;
+    --text: #f1f5f9;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --border: #334155;
+    --shadow: 0 1px 3px rgba(0,0,0,.2), 0 1px 2px rgba(0,0,0,.15);
+    --shadow-lg: 0 10px 40px rgba(0,0,0,.3);
+  }
+  .stat { background: linear-gradient(135deg, #1e293b, #312e81); }
+  .detail-item { background: #1e293b; }
+  .network-canvas { background: #0f172a; border-color: #334155; }
+  .modal-close:hover { background: #450a0a; }
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
