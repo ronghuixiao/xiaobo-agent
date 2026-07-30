@@ -223,4 +223,80 @@ def create_api_router(
                     edges.append({"source": kw_list[i], "target": kw_list[j], "weight": len(shared)})
         return {"nodes": nodes, "edges": edges}
 
+
+    # === 学习记录 API ===
+
+    @router.get("/api/learning/records")
+    async def get_learning_records(limit: int = 50, offset: int = 0):
+        """获取学习记录列表"""
+        cursor = await memory._db.execute(
+            "SELECT * FROM learning_log ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+        count_cursor = await memory._db.execute("SELECT COUNT(*) FROM learning_log")
+        total = (await count_cursor.fetchone())[0]
+        return {"records": [dict(r) for r in rows], "total": total}
+
+    @router.get("/api/learning/graph")
+    async def get_learning_graph():
+        """获取知识网络图数据（节点=主题，边=关联主题）"""
+        cursor = await memory._db.execute(
+            "SELECT topic, related_topics, tags FROM learning_log ORDER BY created_at DESC"
+        )
+        rows = await cursor.fetchall()
+
+        # 统计每个主题出现次数
+        topic_count = {}
+        topic_tags = {}
+        edges = []
+        edge_set = set()
+
+        for row in rows:
+            topic = row["topic"]
+            if not topic:
+                continue
+            topic_count[topic] = topic_count.get(topic, 0) + 1
+            tags = row["tags"] if row["tags"] else ""
+            if tags:
+                topic_tags[topic] = tags
+            related = row["related_topics"] if row["related_topics"] else ""
+            if related:
+                for rt in [r.strip() for r in related.split(",") if r.strip()]:
+                    edge_key = tuple(sorted([topic, rt]))
+                    if edge_key not in edge_set:
+                        edge_set.add(edge_key)
+                        edges.append({"source": topic, "target": rt, "weight": 1})
+                    # 也确保关联主题在节点中
+                    if rt not in topic_count:
+                        topic_count[rt] = 0
+
+        nodes = []
+        for topic, count in topic_count.items():
+            nodes.append({
+                "id": topic,
+                "size": count,
+                "tags": topic_tags.get(topic, ""),
+            })
+
+        return {"nodes": nodes, "edges": edges}
+
+    @router.get("/api/learning/stats")
+    async def get_learning_stats():
+        """获取学习统计"""
+        cursor = await memory._db.execute(
+            "SELECT COUNT(*) as total, COUNT(DISTINCT topic) as topics FROM learning_log"
+        )
+        row = await cursor.fetchone()
+        stats = dict(row) if row else {"total": 0, "topics": 0}
+
+        # 最近学习的主题
+        cursor2 = await memory._db.execute(
+            "SELECT DISTINCT topic FROM learning_log ORDER BY created_at DESC LIMIT 10"
+        )
+        recent_topics = [r["topic"] for r in await cursor2.fetchall()]
+
+        stats["recent_topics"] = recent_topics
+        return stats
+
     return router

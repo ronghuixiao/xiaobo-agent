@@ -410,33 +410,34 @@ class ConversationHandler:
         # 根据内容动态调整 temperature
         temperature = self.get_temperature(user_message)
         full_response = []
+        
+        # 6. 真正的流式输出 - 逐chunk yield给前端
         async for chunk in self.llm_resilient.stream_chat(messages, temperature=temperature):
             full_response.append(chunk)
-
-        # 5. 清理 LLM 回复中的任务标记
+            yield chunk  # 实时yield每个chunk
+        
+        # 合并完整响应
         raw_response = "".join(full_response)
-
-        # 4.5 工具调用处理
+        
+        # 4.5 工具调用处理（流式结束后检测）
         if self.tool_executor and self.tool_executor.has_tool_calls(raw_response):
             has_calls, tool_results, natural_text = await self.tool_executor.process_with_tools(raw_response)
             if has_calls and tool_results:
                 tool_context = self.tool_executor.format_results_for_context(tool_results)
                 messages.append(ChatMessage(role="assistant", content=natural_text))
                 messages.append(ChatMessage(role="user", content=f"[系统] 工具调用结果已返回：\n{tool_context}\n\n请基于以上工具结果回复用户。"))
-                # 重新流式生成
+                # 重新流式生成工具调用结果
                 raw_response = ""
                 async for chunk in self.llm_resilient.stream_chat(messages, temperature=temperature):
                     raw_response += chunk
-                natural_text = raw_response
+                    yield chunk  # 流式yield工具调用结果
+        
+        # 5. 清理 LLM 回复中的任务标记
         import re
         clean_response = re.sub(
             r'\[TASKS_DETECTED\]\s*\n.*?\[/TASKS_DETECTED\]',
             '', raw_response, flags=re.DOTALL
         ).strip()
-
-        # 6. 流式输出清理后的回复（逐块输出）
-        for line in clean_response.split('\n'):
-            yield line + '\n'
 
         # 7. 保存清理后的回复
         assistant_msg = ConversationMessage(
