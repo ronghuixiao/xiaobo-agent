@@ -985,13 +985,13 @@ function loadLearningChart() {
 
     // Render knowledge graph if nodes exist
     if (graphData.nodes && graphData.nodes.length > 0) {
-      renderForceGraph(graphData);
+      renderForceGraph(graphData, 'learning-network');
     }
   });
 }
 
-function renderForceGraph(graphData) {
-  var canvas = document.getElementById('network-canvas');
+function renderForceGraph(graphData, canvasId) {
+  var canvas = document.getElementById(canvasId || 'network-canvas');
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
   var rect = canvas.parentElement.getBoundingClientRect();
