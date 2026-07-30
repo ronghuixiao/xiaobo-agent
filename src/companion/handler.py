@@ -88,6 +88,9 @@ SYSTEM_PROMPT_TEMPLATE = """你是{companion_name}，{user_name}的个人数字�
 ## 学习记录
 {learning_context}
 
+## 关联学习记录（主动提及）
+{related_learning}
+
 ## 今日任务清单
 {today_tasks}
 
@@ -240,6 +243,7 @@ class ConversationHandler:
         related_memories = await self._get_related_memories(user_message)
         recent_context = await self._get_recent_context()
         learning_context = await self._get_learning_context()
+        related_learning = await self._get_related_learning(user_message)
 
         # 3. 构建系统提示
         now = datetime.now()
@@ -252,6 +256,7 @@ class ConversationHandler:
             related_memories=related_memories,
             recent_context=recent_context,
             learning_context=learning_context,
+            related_learning=related_learning,
             today_tasks=today_tasks,
             action_result=action_result,
             tool_section=self.tool_registry.to_prompt_section() if self.tool_registry else "",
@@ -386,6 +391,7 @@ class ConversationHandler:
         related_memories = await self._get_related_memories(user_message)
         recent_context = await self._get_recent_context()
         learning_context = await self._get_learning_context()
+        related_learning = await self._get_related_learning(user_message)
 
         # 3. 构建系统提示
         now = datetime.now()
@@ -398,6 +404,7 @@ class ConversationHandler:
             related_memories=related_memories,
             recent_context=recent_context,
             learning_context=learning_context,
+            related_learning=related_learning,
             today_tasks=today_tasks,
             action_result=action_result,
             tool_section=self.tool_registry.to_prompt_section() if self.tool_registry else "",
@@ -681,3 +688,69 @@ class ConversationHandler:
         except Exception as e:
             logger.warning(f"获取学习记录失败: {e}")
             return "（暂无学习记录）"
+
+    async def _get_related_learning(self, query: str) -> str:
+        """根据当前消息，检索相关的历史学习记录"""
+        try:
+            records = await self.memory.get_learning_records(limit=50)
+            if not records:
+                return ""
+
+            # 提取查询关键词
+            query_lower = query.lower()
+            query_words = set()
+            # 中文分词：2-4字组合
+            chinese_chars = [c for c in query if '\u4e00' <= c <= '\u9fff']
+            for i in range(len(chinese_chars)):
+                for j in range(i+2, min(i+5, len(chinese_chars)+1)):
+                    query_words.add(''.join(chinese_chars[i:j]))
+            # 英文单词
+            import re
+            english_words = re.findall(r'[a-zA-Z]+', query_lower)
+            query_words.update(english_words)
+
+            if not query_words:
+                return ""
+
+            # 匹配学习记录
+            related = []
+            for r in records:
+                topic = r.get("topic", "").lower()
+                content = r.get("content", "").lower()
+                related_topics = r.get("related_topics", "").lower()
+                
+                # 检查是否匹配
+                all_text = f"{topic} {content} {related_topics}"
+                match_score = 0
+                for word in query_words:
+                    if len(word) >= 2 and word in all_text:
+                        match_score += 1
+                
+                if match_score > 0:
+                    related.append({
+                        "topic": r.get("topic", ""),
+                        "content": r.get("content", ""),
+                        "understanding": r.get("understanding", ""),
+                        "time": r.get("created_at", "")[:10],
+                        "score": match_score
+                    })
+
+            if not related:
+                return ""
+
+            # 按匹配度排序，取top3
+            related.sort(key=lambda x: -x["score"])
+            top = related[:3]
+
+            lines = ["📚 与当前话题相关的学习记录："]
+            for r in top:
+                line = f"  - [{r['time']}] {r['topic']}: {r['content'][:60]}"
+                if r['understanding']:
+                    line += f"（{r['understanding']}）"
+                lines.append(line)
+            lines.append("→ 请主动提及这些关联，帮助用户巩固记忆")
+
+            return "\n".join(lines)
+        except Exception as e:
+            logger.warning(f"获取关联学习记录失败: {e}")
+            return ""
