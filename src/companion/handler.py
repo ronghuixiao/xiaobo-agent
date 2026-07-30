@@ -595,9 +595,10 @@ class ConversationHandler:
         return "\n".join(lines) if lines else "（今日暂无任务记录）"
 
     async def _get_related_memories(self, query: str) -> str:
-        """语义检索相关历史记忆（使用 EmbeddingCache 持久化）"""
+        """混合检索相关历史记忆: 向量检索 + BM25 + Reranking"""
         try:
             from src.memory.embedding_cache import EmbeddingCache
+            from src.memory.bm25 import HybridRetriever
             cache = EmbeddingCache(self.llm, self.memory)
 
             # 1. 获取查询的 embedding
@@ -610,7 +611,6 @@ class ConversationHandler:
             # 2. 获取所有缓存的消息 embedding
             all_msg_embs = await cache.get_all_by_type("message")
             if not all_msg_embs:
-                # 如果没有缓存，先为最近50条消息建立索引
                 messages = await self.memory.get_messages(limit=50)
                 for msg in messages:
                     await cache.get_or_compute(
@@ -620,26 +620,34 @@ class ConversationHandler:
                     )
                 all_msg_embs = await cache.get_all_by_type("message")
 
-            # 3. 计算相似度
-            scored = []
+            # 3. 向量检索
             msg_map = {m.id: m for m in await self.memory.get_messages(limit=500)}
+            vector_scored = []
             for entity_id, emb in all_msg_embs:
                 sim = EmbeddingCache._cosine_similarity(query_emb, emb)
-                if sim >= 0.3:  # 降低阈值，更宽容
+                if sim >= 0.2:  # 降低阈值，让reranking来筛选
                     msg = msg_map.get(entity_id)
                     if msg and msg.role == "user":
-                        scored.append((msg, sim))
+                        vector_scored.append((msg.id, sim))
 
-            scored.sort(key=lambda x: -x[1])
-            top = scored[:5]
+            # 4. 混合Reranking (向量 + BM25)
+            retriever = HybridRetriever(vector_weight=0.6, bm25_weight=0.4)
+            user_msgs = [(m.id, m.content) for m in msg_map.values() if m.role == "user"]
+            if user_msgs:
+                doc_ids, docs = zip(*user_msgs)
+                retriever.index(list(doc_ids), list(docs))
+            
+            reranked = retriever.rerank(query, vector_scored, top_k=5)
 
-            if not top:
+            if not reranked:
                 return "（暂无相关记忆）"
 
             lines = ["相关对话："]
-            for msg, score in top:
-                time_str = msg.timestamp.strftime("%m月%d日")
-                lines.append(f"  [{time_str}] {msg.content[:100]}（相似度: {score:.2f}）")
+            for doc_id, score in reranked:
+                msg = msg_map.get(doc_id)
+                if msg:
+                    time_str = msg.timestamp.strftime("%m月%d日")
+                    lines.append(f"  [{time_str}] {msg.content[:100]}（相关度: {score:.2f}）")
             return "\n".join(lines)
         except Exception as e:
             logger.warning(f"语义检索失败（不影响回复）: {e}")
